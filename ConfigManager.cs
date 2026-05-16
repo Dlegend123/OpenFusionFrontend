@@ -2,6 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Windows.Media;
+using Color = System.Windows.Media.Color;
+using ColorConverter = System.Windows.Media.ColorConverter;
 
 namespace fflauncher
 {
@@ -39,7 +42,8 @@ namespace fflauncher
         }
 
         public string GlobalTheme { get; set; } = "dark";
-        public bool TabletMode { get; set; } = false;
+        public bool TabletMode { get; set; } = true;
+        public Dictionary<string, Color> CustomThemeColors { get; set; } = new();
 
         public Dictionary<string, ServerConfig> LoadConfigs()
         {
@@ -52,7 +56,24 @@ namespace fflauncher
             var iniData = ParseIniFile(configPath);
             var globalSection = iniData.ContainsKey("global") ? iniData["global"] : new Dictionary<string, string>();
             GlobalTheme = GetValue(globalSection, "theme", "dark");
-            TabletMode = bool.Parse(GetValue(globalSection, "tablet_mode", "false"));
+            TabletMode = bool.Parse(GetValue(globalSection, "tablet_mode", "true"));
+            
+            // Load custom theme colors if they exist
+            var customThemeSection = iniData.ContainsKey("custom_theme") ? iniData["custom_theme"] : new Dictionary<string, string>();
+            CustomThemeColors = new Dictionary<string, Color>();
+            foreach (var colorKey in new[] { "BgColor", "FgColor", "AccentColor", "CardColor", "ButtonColor", "BorderColor" })
+            {
+                string colorStr = GetValue(customThemeSection, colorKey.ToLower(), "");
+                if (!string.IsNullOrEmpty(colorStr))
+                {
+                    try
+                    {
+                        CustomThemeColors[colorKey] = (Color)ColorConverter.ConvertFromString(colorStr);
+                    }
+                    catch { }
+                }
+            }
+            
             string configDir = Path.GetDirectoryName(configPath) ?? "";
 
             foreach (var section in iniData)
@@ -132,6 +153,17 @@ namespace fflauncher
             lines.Add($"theme={GlobalTheme}");
             lines.Add($"tablet_mode={TabletMode}");
             lines.Add("");
+
+            // Save custom theme colors if present
+            if (CustomThemeColors.Any())
+            {
+                lines.Add("[custom_theme]");
+                foreach (var kvp in CustomThemeColors)
+                {
+                    lines.Add($"{kvp.Key.ToLower()}={kvp.Value.ToString()}");
+                }
+                lines.Add("");
+            }
 
             foreach (var kvp in configs)
             {

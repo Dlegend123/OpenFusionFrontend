@@ -13,7 +13,8 @@
         Height="620"
         Width="900">
     <Window.Resources>
-        <Style x:Key="CarouselItemStyle" TargetType="ListBoxItem">
+        <local:OneThirdConverter x:Key="OneThirdConverter"/>
+            <Style x:Key="CarouselItemStyle" TargetType="ListBoxItem">
             <Setter Property="Padding" Value="0"/>
             <Setter Property="Margin" Value="0,0,18,0"/>
             <Setter Property="Background" Value="Transparent"/>
@@ -70,171 +71,224 @@
             Background="{DynamicResource BgColor}"
             BorderBrush="{DynamicResource BorderColor}"
             BorderThickness="1"
-            SnapsToDevicePixels="True">
+            SnapsToDevicePixels="True"
+            HorizontalAlignment="Stretch"
+            VerticalAlignment="Stretch">
 
-        <Grid>
+        <Grid HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="32"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
 
-            <Grid>
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="32"/>
-                    <!-- Title bar -->
-                    <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="*"/>
-                    <RowDefinition Height="Auto"/>
-                </Grid.RowDefinitions>
-                <Border Grid.Row="0"
-        Background="{DynamicResource BgColor}"
-                        MouseDown="Window_MouseDown"
-                        Panel.ZIndex="1"
-                        CornerRadius="16,16,0,0"
-                        SnapsToDevicePixels="True">
+            <!-- TITLE BAR -->
+            <Border Grid.Row="0"
+                    Background="{DynamicResource BgColor}"
+                    MouseDown="Window_MouseDown"
+                    Panel.ZIndex="1"
+                    CornerRadius="16,16,0,0"
+                    SnapsToDevicePixels="True">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
 
-                    <Grid>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="Auto"/>
-                        </Grid.ColumnDefinitions>
+                    <TextBlock x:Name="TitleTextBlock"
+                               Text="OpenFusion Launcher"
+                               VerticalAlignment="Center"
+                               HorizontalAlignment="Left"
+                               Margin="14,0,0,0"
+                               Foreground="{DynamicResource FgColor}"
+                               FontWeight="Bold"/>
 
-                        <TextBlock Text="OpenFusion Launcher"
-                                   VerticalAlignment="Center"
-                                   Margin="14,0,0,0"
-                                   Foreground="{DynamicResource FgColor}"
-                                   FontWeight="Bold"/>
+                    <Button x:Name="BackButton"
+                            Grid.Column="1"
+                            Content="←"
+                            Width="40"
+                            Height="32"
+                            Margin="0"
+                            FontFamily="Segoe UI Symbol"
+                            FontSize="16"
+                            Foreground="{DynamicResource FgColor}"
+                            Visibility="Collapsed"
+                            Click="BackButton_Click"
+                            Style="{StaticResource TitleBarButtonStyle}"/>
 
-                        <Button Grid.Column="1"
-                                Content="—"
-                                Width="40"
-                                Height="32"
-                                Margin="0"
-                                FontFamily="Segoe UI Symbol"
-                                FontSize="16"
-                                Foreground="{DynamicResource FgColor}"
-                                Click="Minimize_Click"
-                                Style="{StaticResource TitleBarButtonStyle}"/>
+                    <Button Grid.Column="2"
+                            Content="—"
+                            Width="40"
+                            Height="32"
+                            Margin="0"
+                            FontFamily="Segoe UI Symbol"
+                            FontSize="16"
+                            Foreground="{DynamicResource FgColor}"
+                            Click="Minimize_Click"
+                            Style="{StaticResource TitleBarButtonStyle}"/>
 
-                        <Button Grid.Column="2"
-                                Content="□"
-                                Width="40"
-                                Height="32"
-                                Margin="0"
-                                Name="MaximizeButton"
-                                FontFamily="Segoe UI Symbol"
-                                FontSize="16"
-                                Foreground="{DynamicResource FgColor}"
-                                Click="Maximize_Click"
-                                Style="{StaticResource TitleBarButtonStyle}"/>
+                    <Button Grid.Column="3"
+                            Content="□"
+                            Width="40"
+                            Height="32"
+                            Margin="0"
+                            Name="MaximizeButton"
+                            FontFamily="Segoe UI Symbol"
+                            FontSize="16"
+                            Foreground="{DynamicResource FgColor}"
+                            Click="Maximize_Click"
+                            Style="{StaticResource TitleBarButtonStyle}"/>
 
-                        <Button Grid.Column="3"
-                                Content="X"
-                                Width="40"
-                                Height="32"
-                                Margin="0"
-                                FontFamily="Segoe UI Symbol"
-                                FontSize="16"
-                                Foreground="{DynamicResource FgColor}"
-                                Click="Close_Click"
-                                Style="{StaticResource TitleBarCloseButtonStyle}"/>
-                    </Grid>
-                </Border>
-                <Border Grid.Row="1" Background="{DynamicResource CardColor}" CornerRadius="12" Margin="10" Padding="16" BorderBrush="{DynamicResource BorderColor}" BorderThickness="1">
-                    <Grid>
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="*"/>
-                        </Grid.RowDefinitions>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="Auto"/>
-                        </Grid.ColumnDefinitions>
+                    <Button Grid.Column="4"
+                            Content="X"
+                            Width="40"
+                            Height="32"
+                            Margin="0"
+                            FontFamily="Segoe UI Symbol"
+                            FontSize="16"
+                            Foreground="{DynamicResource FgColor}"
+                            Click="Close_Click"
+                            Style="{StaticResource TitleBarCloseButtonStyle}"/>
+                </Grid>
+            </Border>
 
-                        <StackPanel Grid.Row="0" Grid.Column="0" Orientation="Vertical" VerticalAlignment="Center">
-                            <TextBlock Text="Choose Server" FontSize="18" FontWeight="Bold" Margin="0,0,0,6"/>
-                            <TextBlock Text="Swipe through your available launch targets." FontSize="13" Opacity="0.75"/>
-                        </StackPanel>
+            <!-- LAUNCHER HEADER -->
+            <Border Grid.Row="1"
+                    x:Name="LauncherHeader"
+                    Background="{DynamicResource CardColor}"
+                    CornerRadius="12"
+                    Margin="10"
+                    Padding="16"
+                    BorderBrush="{DynamicResource BorderColor}"
+                    BorderThickness="1">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
 
-                        <Button x:Name="SettingsButton" Content="Settings" Grid.Row="0" Grid.Column="1" VerticalAlignment="Top" Width="110" Height="40" Click="SettingsButton_Click"/>
+                    <StackPanel Grid.Row="0" Grid.Column="0" Orientation="Vertical" VerticalAlignment="Center">
+                        <TextBlock Text="Choose Server" FontSize="18" FontWeight="Bold" Margin="0,0,0,6"/>
+                        <TextBlock Text="Swipe through your available launch targets." FontSize="13" Opacity="0.75"/>
+                    </StackPanel>
+
+                    <Button x:Name="SettingsButton"
+                            Grid.Row="0"
+                            Grid.Column="1"
+                            VerticalAlignment="Top"
+                            Width="110"
+                            Height="40"
+                            Content="Settings"
+                            Click="SettingsButton_Click"/>
+                </Grid>
+            </Border>
+
+            <!-- SETTINGS HEADER -->
+            <Border Grid.Row="1"
+                    x:Name="SettingsHeader"
+                    Visibility="Collapsed"
+                    Background="{DynamicResource CardColor}"
+                    CornerRadius="12"
+                    Margin="10"
+                    Padding="16"
+                    BorderBrush="{DynamicResource BorderColor}"
+                    BorderThickness="1">
+                <TextBlock Text="Settings"
+                           FontSize="18"
+                           FontWeight="Bold"
+                           Foreground="{DynamicResource FgColor}"/>
+            </Border>
+
+            <!-- MAIN VIEWS -->
+            <Grid Grid.Row="2" HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+                <Grid x:Name="LauncherView" Visibility="Visible" HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <Border Grid.Row="0"
+                            Background="{DynamicResource CardColor}"
+                            CornerRadius="12"
+                            Margin="10"
+                            Padding="16"
+                            BorderBrush="{DynamicResource BorderColor}"
+                            BorderThickness="1">
                         <ListBox x:Name="ServerCarousel"
-         PreviewMouseLeftButtonDown="Carousel_MouseDown"
-         PreviewMouseMove="Carousel_MouseMove"
-         PreviewMouseLeftButtonUp="Carousel_MouseUp"
-         MouseLeftButtonUp="ServerCarousel_MouseLeftButtonUp"
-                                           Grid.Row="1"
-                                 SelectionChanged="ServerCarousel_SelectionChanged"
- Grid.ColumnSpan="2"
- Margin="0,16,0,0"
-         Background="Transparent"
-         BorderThickness="0"
-         ScrollViewer.HorizontalScrollBarVisibility="Hidden"
-ScrollViewer.VerticalScrollBarVisibility="Disabled"
-         SelectionMode="Single"
-IsSynchronizedWithCurrentItem="True"
-         ItemContainerStyle="{StaticResource CarouselItemStyle}">
+                                 Margin="0"
+                                 Background="Transparent"
+                                 BorderThickness="0"
+                                 ScrollViewer.HorizontalScrollBarVisibility="Hidden"
+                                 ScrollViewer.VerticalScrollBarVisibility="Disabled"
+                                 SelectionMode="Single"
+                                 IsSynchronizedWithCurrentItem="True"
+                                 ItemContainerStyle="{StaticResource CarouselItemStyle}"
+                                 PreviewMouseLeftButtonDown="Carousel_MouseDown"
+                                 PreviewMouseMove="Carousel_MouseMove"
+                                 PreviewMouseLeftButtonUp="Carousel_MouseUp"
+                                 MouseLeftButtonUp="ServerCarousel_MouseLeftButtonUp"
+                                 SelectionChanged="ServerCarousel_SelectionChanged">
                             <ListBox.ItemsPanel>
-                                    
-                                    <ItemsPanelTemplate>
-                                        <StackPanel Orientation="Horizontal"/>
-                                    </ItemsPanelTemplate>
-                                </ListBox.ItemsPanel>
-
-                                <ListBox.ItemTemplate>
+                                <ItemsPanelTemplate>
+                                    <StackPanel Orientation="Horizontal"/>
+                                </ItemsPanelTemplate>
+                            </ListBox.ItemsPanel>
+                            <ListBox.ItemTemplate>
                                     <DataTemplate>
                                         <Border Width="280"
-                Height="180"
-                CornerRadius="18"
-                ClipToBounds="True">
-
+                                                Height="180"
+                                                CornerRadius="18"
+                                                ClipToBounds="True">
                                             <Grid>
-
                                                 <!-- NORMAL CONFIG -->
                                                 <Grid x:Name="NormalCard">
-
                                                     <Grid.Clip>
                                                         <RectangleGeometry RadiusX="18"
-                                           RadiusY="18"
-                                           Rect="0,0,280,180"/>
+                                                                           RadiusY="18"
+                                                                           Rect="0,0,280,180"/>
                                                     </Grid.Clip>
 
-                                                <Image Stretch="UniformToFill"
-       Opacity="0.75">
-                                                    <Image.Style>
-                                                        <Style TargetType="Image">
-                                                            <Setter Property="Source" Value="{Binding ImagePath}"/>
-                                                            <Style.Triggers>
-                                                                <DataTrigger Binding="{Binding IsAddNew}" Value="True">
-                                                                    <Setter Property="Source" Value="{x:Null}"/>
-                                                                </DataTrigger>
-                                                            </Style.Triggers>
-                                                        </Style>
-                                                    </Image.Style>
-                                                </Image>
-
-                                                <Border Background="#66000000"/>
-
-                                                    <StackPanel Margin="14"
-                                VerticalAlignment="Bottom">
-
+                                                    <Image Stretch="UniformToFill"
+                                                           Opacity="0.75">
+                                                        <Image.Style>
+                                                            <Style TargetType="Image">
+                                                                <Setter Property="Source" Value="{Binding ImagePath}"/>
+                                                                <Style.Triggers>
+                                                                    <DataTrigger Binding="{Binding IsAddNew}" Value="True">
+                                                                        <Setter Property="Source" Value="{x:Null}"/>
+                                                                    </DataTrigger>
+                                                                </Style.Triggers>
+                                                            </Style>
+                                                        </Image.Style>
+                                                    </Image>
+                                                    <Border Background="#66000000"/>
+                                                    <StackPanel Margin="14" VerticalAlignment="Bottom">
                                                         <TextBlock Text="{Binding Name}"
-                                   FontSize="16"
-                                   FontWeight="Bold"
-                                   Foreground="{DynamicResource FgColor}"/>
-
+                                                                   FontSize="16"
+                                                                   FontWeight="Bold"
+                                                                   Foreground="{DynamicResource FgColor}"/>
                                                         <TextBlock Text="{Binding Address}"
-                                   FontSize="12"
-                                   Foreground="{DynamicResource AccentColor}"
-                                   Opacity="0.95"/>
+                                                                   FontSize="12"
+                                                                   Foreground="{DynamicResource AccentColor}"
+                                                                   Opacity="0.95"/>
                                                     </StackPanel>
                                                 </Grid>
 
                                                 <!-- ADD NEW TILE -->
                                                 <Border x:Name="AddTile"
-                        Background="{DynamicResource CardColor}"
-                        BorderBrush="{DynamicResource BorderColor}"
-                        BorderThickness="1"
-                        CornerRadius="18"
-                        Visibility="Collapsed">
-
+                                                        Background="{DynamicResource CardColor}"
+                                                        BorderBrush="{DynamicResource BorderColor}"
+                                                        BorderThickness="1"
+                                                        CornerRadius="18"
+                                                        Visibility="Collapsed">
                                                     <Button Click="AddTile_Click"
                                                             Background="Transparent"
                                                             BorderThickness="0"
@@ -250,42 +304,383 @@ IsSynchronizedWithCurrentItem="True"
                                                                    VerticalAlignment="Center"/>
                                                     </Button>
                                                 </Border>
-
                                             </Grid>
                                         </Border>
-
-                                        <!-- SWITCH TEMPLATE -->
                                         <DataTemplate.Triggers>
                                             <DataTrigger Binding="{Binding IsAddNew}" Value="True">
                                                 <Setter TargetName="NormalCard" Property="Visibility" Value="Collapsed"/>
                                                 <Setter TargetName="AddTile" Property="Visibility" Value="Visible"/>
                                             </DataTrigger>
                                         </DataTemplate.Triggers>
-
                                     </DataTemplate>
                                 </ListBox.ItemTemplate>
                             </ListBox>
+                    </Border>
 
-                    </Grid>
-                </Border>
+                    <ScrollViewer Grid.Row="1"
+                                  Margin="10"
+                                  x:Name="ConfigScrollViewer"
+                                  HorizontalScrollBarVisibility="Disabled"
+                                  VerticalScrollBarVisibility="Hidden"
+                                  PanningMode="VerticalOnly"
+                                  CanContentScroll="False"
+                                  PreviewMouseLeftButtonDown="ConfigDrag_MouseDown"
+                                  PreviewMouseMove="ConfigDrag_MouseMove"
+                                  PreviewMouseLeftButtonUp="ConfigDrag_MouseUp">
+                        <StackPanel x:Name="ConfigDetailsPanel"/>
+                    </ScrollViewer>
+                </Grid>
 
-                <ScrollViewer Grid.Row="2"
-              Margin="10"
-              x:Name="ConfigScrollViewer"
-              HorizontalScrollBarVisibility="Disabled"
-              VerticalScrollBarVisibility="Hidden"
-              PanningMode="VerticalOnly"
-              CanContentScroll="False"
-              PreviewMouseLeftButtonDown="ConfigDrag_MouseDown"
-              PreviewMouseMove="ConfigDrag_MouseMove"
-              PreviewMouseLeftButtonUp="ConfigDrag_MouseUp">
+                <!-- SETTINGS VIEW -->
+                <Grid x:Name="SettingsView" Visibility="Collapsed" HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+                    <Border Background="{DynamicResource CardColor}"
+                            CornerRadius="12"
+                            Padding="10"
+                            Margin="10"
+                            BorderBrush="{DynamicResource BorderColor}"
+                            BorderThickness="1"
+                            HorizontalAlignment="Stretch"
+                            VerticalAlignment="Stretch">
+                        <Grid x:Name="SettingsColumnsGrid" VerticalAlignment="Stretch">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition
+        MinWidth="{Binding MinWidth, ElementName=SettingsColumnsGrid, Converter={StaticResource OneThirdConverter}}"/>
 
-                    <StackPanel x:Name="ConfigDetailsPanel"/>
-                </ScrollViewer>
+                                <ColumnDefinition
+        MinWidth="{Binding MinWidth, ElementName=SettingsColumnsGrid, Converter={StaticResource OneThirdConverter}}"/>
 
-                <Button x:Name="LaunchButton" Grid.Row="3" Content="Launch Game" Height="46" Margin="10" HorizontalAlignment="Stretch" Click="LaunchButton_Click"/>
+                                <ColumnDefinition
+        MinWidth="{Binding MinWidth, ElementName=SettingsColumnsGrid, Converter={StaticResource OneThirdConverter}}"/>
+                            </Grid.ColumnDefinitions>
+
+                            <!-- LEFT PANEL -->
+                            <Border Grid.Column="0"
+                                    Background="{DynamicResource CardColor}"
+                                    CornerRadius="12"
+                                    Padding="14"
+                                    Margin="0,0,10,0"
+                                    BorderBrush="{DynamicResource BorderColor}"
+                                    BorderThickness="1"
+                                    VerticalAlignment="Stretch"
+                                    HorizontalAlignment="Stretch">
+                                <StackPanel VerticalAlignment="Top">
+                                    <TextBlock Text="Servers" Margin="0,0,0,12" FontSize="16" FontWeight="Bold"/>
+
+                                    <TextBlock Text="Select Server" Margin="0,0,0,5" FontSize="15" FontWeight="SemiBold"/>
+                                    <ComboBox x:Name="ServerDropdown"
+                                              SelectionChanged="ServerDropdown_SelectionChanged"
+                                              Height="42"
+                                              Margin="0,0,0,12">
+                                        <ComboBox.ItemTemplate>
+                                            <DataTemplate>
+                                                <TextBlock Text="{Binding Name}" Foreground="{DynamicResource FgColor}"/>
+                                            </DataTemplate>
+                                        </ComboBox.ItemTemplate>
+                                    </ComboBox>
+
+                                    <TextBlock Text="Section" Margin="0,15,0,5" FontSize="15" FontWeight="SemiBold"/>
+
+                                    <RadioButton x:Name="ServerSectionBtn"
+                                                 Content="Server"
+                                                 FontSize="15"
+                                                 Height="42"
+                                                 IsChecked="True"
+                                                 Checked="SectionChanged"/>
+
+                                    <RadioButton x:Name="ThemeSectionBtn"
+                                                 Content="Theme"
+                                                 FontSize="15"
+                                                 Height="42"
+                                                 Margin="0,10,0,0"
+                                                 Checked="SectionChanged"/>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- MIDDLE PANEL -->
+                            <Border Grid.Column="1"
+                                    Background="{DynamicResource CardColor}"
+                                    CornerRadius="12"
+                                    Padding="10"
+                                    HorizontalAlignment="Stretch"
+                                    Margin="0,0,10,0"
+                                    BorderBrush="{DynamicResource BorderColor}"
+                                    BorderThickness="1"
+                                    VerticalAlignment="Stretch">
+                                <Grid VerticalAlignment="Stretch">
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="*"/>
+                                        <RowDefinition Height="Auto"/>
+                                    </Grid.RowDefinitions>
+
+                                    <!-- SETTINGS CONTENT -->
+                                    <Grid Grid.Row="0" VerticalAlignment="Stretch">
+                                        <ScrollViewer x:Name="ServerPanel"
+                                                      VerticalScrollBarVisibility="Hidden"
+                                                      HorizontalScrollBarVisibility="Disabled"
+                                                      CanContentScroll="False"
+                                                      PanningMode="VerticalOnly"
+                                                      Margin="0,0,5,0"
+                                                      VerticalAlignment="Stretch"
+                                                      PreviewMouseLeftButtonDown="SettingsScroll_MouseDown"
+                                                      PreviewMouseMove="SettingsScroll_MouseMove"
+                                                      PreviewMouseLeftButtonUp="SettingsScroll_MouseUp">
+                                            <StackPanel Margin="0,10,10,10" HorizontalAlignment="Left">
+                                                <TextBlock Foreground="{DynamicResource FgColor}" Text="Section Name"/>
+                                                <TextBox x:Name="NameTextBox" Margin="10,0,0,10"/>
+
+                                                <StackPanel Orientation="Horizontal" Margin="10,0,0,10" HorizontalAlignment="Left">
+                                                    <TextBlock Foreground="{DynamicResource FgColor}" Text="Mode: "/>
+                                                    <RadioButton x:Name="ModeOnlineRadio"
+                                                                 Content="Online"
+                                                                 Margin="0,0,10,0"
+                                                                 GroupName="ModeGroup"/>
+                                                    <RadioButton x:Name="ModeOfflineRadio"
+                                                                 Content="Offline"
+                                                                 GroupName="ModeGroup"/>
+                                                </StackPanel>
+
+                                                <TextBlock Foreground="{DynamicResource FgColor}" Text="Server Path"/>
+                                                <TextBox x:Name="ServerPathTextBox"
+                                                         Margin="10,0,0,10"
+                                                         IsReadOnly="True"
+                                                         Cursor="Hand"
+                                                         ToolTip="Click to select the server executable"
+                                                         MouseLeftButtonUp="ServerPathTextBox_Click"/>
+
+                                                <TextBlock Foreground="{DynamicResource FgColor}" Text="Client Path"/>
+                                                <TextBox x:Name="ClientPathTextBox"
+                                                         Margin="10,0,0,10"
+                                                         IsReadOnly="True"
+                                                         Cursor="Hand"
+                                                         ToolTip="Click to select the client executable"
+                                                         MouseLeftButtonUp="ClientPathTextBox_Click"/>
+
+                                                <TextBlock Foreground="{DynamicResource FgColor}" Text="Cache Dir"/>
+                                                <TextBox x:Name="CacheDirTextBox"
+                                                         Margin="10,0,0,10"
+                                                         IsReadOnly="True"
+                                                         Cursor="Hand"
+                                                         ToolTip="Click to select the cache directory"
+                                                         MouseLeftButtonUp="CacheDirTextBox_Click"/>
+
+                                                <TextBlock Foreground="{DynamicResource FgColor}" Text="Address"/>
+                                                <ComboBox x:Name="AddressComboBox"
+                                                          Margin="10,0,0,10"
+                                                          IsEditable="True"
+                                                          IsReadOnly="False"
+                                                          StaysOpenOnEdit="True"
+                                                          HorizontalAlignment="Left"
+                                                          VerticalContentAlignment="Center"
+                                                          VerticalAlignment="Center"
+                                                          SelectionChanged="AddressComboBox_SelectionChanged"/>
+
+                                                <TextBlock Foreground="{DynamicResource FgColor}" Text="Username"/>
+                                                <TextBox x:Name="UsernameTextBox" Margin="10,0,0,10"/>
+
+                                                <TextBlock Foreground="{DynamicResource FgColor}" Text="Token"/>
+                                                <PasswordBox x:Name="TokenPasswordBox" Margin="10,0,0,10"/>
+
+                                                <TextBlock Foreground="{DynamicResource FgColor}" Text="Log File"/>
+                                                <TextBox x:Name="LogFileTextBox" Margin="10,0,0,10"/>
+
+                                                <TextBlock Foreground="{DynamicResource FgColor}" Text="FPS Limit"/>
+                                                <TextBox x:Name="FpsLimitTextBox" Margin="10,0,0,10"/>
+
+                                                <TextBlock Foreground="{DynamicResource FgColor}" Text="Graphics API"/>
+                                                <TextBox x:Name="GraphicsApiTextBox" Margin="10,0,0,10"/>
+
+                                                <StackPanel Orientation="Horizontal" Margin="10,0,0,10">
+                                                    <StackPanel Orientation="Horizontal" Margin="0,0,20,0">
+                                                        <CheckBox x:Name="VerboseCheckBox" VerticalAlignment="Center"/>
+                                                        <TextBlock Text="Verbose"
+                                                                   Foreground="{DynamicResource FgColor}"
+                                                                   VerticalAlignment="Center"
+                                                                   Margin="6,0,0,0"/>
+                                                    </StackPanel>
+                                                    <StackPanel Orientation="Horizontal" Margin="0,0,20,0">
+                                                        <CheckBox x:Name="DxvkHudCheckBox" VerticalAlignment="Center"/>
+                                                        <TextBlock Text="DXVK HUD"
+                                                                   Foreground="{DynamicResource FgColor}"
+                                                                   VerticalAlignment="Center"
+                                                                   Margin="6,0,0,0"/>
+                                                    </StackPanel>
+                                                    <StackPanel Orientation="Horizontal">
+                                                        <CheckBox x:Name="FullscreenCheckBox" VerticalAlignment="Center"/>
+                                                        <TextBlock Text="Fullscreen"
+                                                                   Foreground="{DynamicResource FgColor}"
+                                                                   VerticalAlignment="Center"
+                                                                   Margin="6,0,0,0"/>
+                                                    </StackPanel>
+                                                </StackPanel>
+
+                                                <TextBlock Foreground="{DynamicResource FgColor}" Text="Image Path"/>
+                                                <TextBox x:Name="ImagePathTextBox"
+                                                         Margin="10,0,0,10"
+                                                         Height="42"
+                                                         HorizontalAlignment="Stretch"
+                                                         IsReadOnly="True"
+                                                         Cursor="Hand"
+                                                         ToolTip="Click to choose background image"
+                                                         MouseLeftButtonUp="ImagePathTextBox_Click"/>
+                                            </StackPanel>
+                                        </ScrollViewer>
+
+                                        <StackPanel x:Name="ThemePanel"
+                                                    Visibility="Collapsed"
+                                                    Margin="10"
+                                                    HorizontalAlignment="Stretch"
+                                                    VerticalAlignment="Stretch">
+                                            <TextBlock Text="Application Theme" Margin="10,0,0,10" FontSize="15" FontWeight="Bold" Foreground="{DynamicResource FgColor}"/>
+                                            <ComboBox x:Name="ThemeDropdown" Height="42" SelectionChanged="ThemeDropdown_SelectionChanged"/>
+
+                                            <StackPanel x:Name="CustomThemePanel" Visibility="Collapsed" Margin="0,12,0,0">
+                                                <TextBlock Text="Custom Theme Colors" Margin="10,0,0,10" FontSize="14" FontWeight="Bold" Foreground="{DynamicResource FgColor}"/>
+
+                                                <TextBlock Foreground="{DynamicResource FgColor}" Text="Background Color"/>
+                                                <Grid Margin="0,0,0,8">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="*"/>
+                                                        <ColumnDefinition Width="50"/>
+                                                    </Grid.ColumnDefinitions>
+                                                    <Rectangle x:Name="CustomBgColorPreview" Grid.Column="0" Fill="#FF181A1F" Height="36" Margin="0,0,8,0"/>
+                                                    <Button Grid.Column="1" Content="Pick" Height="36" Click="PickBgColor_Click"/>
+                                                </Grid>
+
+                                                <TextBlock Foreground="{DynamicResource FgColor}" Text="Foreground Color"/>
+                                                <Grid Margin="0,0,0,8">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="*"/>
+                                                        <ColumnDefinition Width="50"/>
+                                                    </Grid.ColumnDefinitions>
+                                                    <Rectangle x:Name="CustomFgColorPreview" Grid.Column="0" Fill="#FFE6EDF3" Height="36" Margin="0,0,8,0"/>
+                                                    <Button Grid.Column="1" Content="Pick" Height="36" Click="PickFgColor_Click"/>
+                                                </Grid>
+
+                                                <TextBlock Foreground="{DynamicResource FgColor}" Text="Accent Color"/>
+                                                <Grid Margin="0,0,0,8">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="*"/>
+                                                        <ColumnDefinition Width="50"/>
+                                                    </Grid.ColumnDefinitions>
+                                                    <Rectangle x:Name="CustomAccentColorPreview" Grid.Column="0" Fill="#FF4FA6FF" Height="36" Margin="0,0,8,0"/>
+                                                    <Button Grid.Column="1" Content="Pick" Height="36" Click="PickAccentColor_Click"/>
+                                                </Grid>
+
+                                                <TextBlock Foreground="{DynamicResource FgColor}" Text="Card Color"/>
+                                                <Grid Margin="0,0,0,8">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="*"/>
+                                                        <ColumnDefinition Width="50"/>
+                                                    </Grid.ColumnDefinitions>
+                                                    <Rectangle x:Name="CustomCardColorPreview" Grid.Column="0" Fill="#FF22252B" Height="36" Margin="0,0,8,0"/>
+                                                    <Button Grid.Column="1" Content="Pick" Height="36" Click="PickCardColor_Click"/>
+                                                </Grid>
+
+                                                <TextBlock Foreground="{DynamicResource FgColor}" Text="Button Color"/>
+                                                <Grid Margin="0,0,0,8">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="*"/>
+                                                        <ColumnDefinition Width="50"/>
+                                                    </Grid.ColumnDefinitions>
+                                                    <Rectangle x:Name="CustomButtonColorPreview" Grid.Column="0" Fill="#FF2B2F36" Height="36" Margin="0,0,8,0"/>
+                                                    <Button Grid.Column="1" Content="Pick" Height="36" Click="PickButtonColor_Click"/>
+                                                </Grid>
+
+                                                <TextBlock Foreground="{DynamicResource FgColor}" Text="Border Color"/>
+                                                <Grid Margin="0,0,0,12">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="*"/>
+                                                        <ColumnDefinition Width="50"/>
+                                                    </Grid.ColumnDefinitions>
+                                                    <Rectangle x:Name="CustomBorderColorPreview" Grid.Column="0" Fill="#FF3A3F47" Height="36" Margin="0,0,8,0"/>
+                                                    <Button Grid.Column="1" Content="Pick" Height="36" Click="PickBorderColor_Click"/>
+                                                </Grid>
+
+                                                <StackPanel Orientation="Horizontal" Margin="0,0,0,0">
+                                                    <Button x:Name="PreviewCustomThemeButton"
+                                                            Content="Preview"
+                                                            Width="100"
+                                                            Height="40"
+                                                            Margin="0,0,10,0"
+                                                            Click="PreviewCustomTheme_Click"/>
+                                                    <Button x:Name="SaveCustomThemeButton"
+                                                            Content="Save Custom Theme"
+                                                            Width="150"
+                                                            Height="40"
+                                                            Click="SaveCustomTheme_Click"/>
+                                                </StackPanel>
+                                            </StackPanel>
+
+                                            <StackPanel Margin="0,12,0,0" Orientation="Horizontal" VerticalAlignment="Center" HorizontalAlignment="Center">
+                                                <CheckBox x:Name="TabletModeCheckBox" VerticalAlignment="Center"/>
+                                                <TextBlock Text="Tablet Mode" Foreground="{DynamicResource FgColor}" VerticalAlignment="Center" Margin="8,0,0,0" FontSize="15"/>
+                                            </StackPanel>
+                                        </StackPanel>
+                                    </Grid>
+
+                                </Grid>
+                            </Border>
+
+                            <!-- RIGHT PANEL (Email, Password, Buttons) -->
+                            <Border Grid.Column="2"
+                                    Background="{DynamicResource CardColor}"
+                                    CornerRadius="12"
+                                    Padding="14"
+                                    BorderBrush="{DynamicResource BorderColor}"
+                                    BorderThickness="1"
+                                    VerticalAlignment="Stretch"
+                                    HorizontalAlignment="Stretch">
+                                <StackPanel VerticalAlignment="Top">
+                                    <TextBlock Text="Account" Margin="0,0,0,12" FontSize="16" FontWeight="Bold" Foreground="{DynamicResource FgColor}"/>
+
+                                    <TextBlock Foreground="{DynamicResource FgColor}" Text="Email"/>
+                                    <TextBox x:Name="EmailTextBox" Margin="10,0,0,10"/>
+
+                                    <TextBlock Foreground="{DynamicResource FgColor}" Text="Password"/>
+                                    <PasswordBox x:Name="PasswordBox" Margin="10,0,0,10"/>
+
+                                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                        <Button x:Name="FetchTokenButton"
+                                                Content="Fetch Token"
+                                                Width="120"
+                                                Height="42"
+                                                Margin="0,0,10,0"
+                                                Click="FetchToken_Click"/>
+
+                                        <Button x:Name="RegisterButton"
+                                                Content="Register"
+                                                Width="120"
+                                                Height="42"
+                                                Click="Register_Click"/>
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+                        </Grid>
+                    </Border>
+                </Grid>
+            </Grid>
+
+            <!-- FOOTER BUTTONS -->
+            <Grid Grid.Row="3" Margin="10">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <Button x:Name="LaunchButton"
+                        Content="Launch Game"
+                        Height="46"
+                        HorizontalAlignment="Stretch"
+                        Click="LaunchButton_Click"/>
+
+                <Button x:Name="SaveButton"
+                        Grid.Column="1"
+                        Content="Save"
+                        Width="120"
+                        Height="46"
+                        Visibility="Collapsed"
+                        Click="Save_Click"/>
             </Grid>
         </Grid>
     </Border>
-        
 </Window>

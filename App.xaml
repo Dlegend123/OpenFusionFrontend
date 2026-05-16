@@ -117,6 +117,8 @@
             <Setter Property="MinHeight" Value="44"/>
             <Setter Property="Padding" Value="14,10"/>
             <Setter Property="FontSize" Value="15"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="HorizontalAlignment" Value="Center"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
             <Setter Property="Cursor" Value="Hand"/>
             <Setter Property="Margin" Value="6"/>
@@ -151,7 +153,10 @@
             <Setter Property="Foreground" Value="{DynamicResource FgColor}"/>
             <Setter Property="BorderBrush" Value="{DynamicResource InputBorder}"/>
             <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="Padding" Value="10,6"/>
+            <Setter Property="Margin" Value="10,0,0,0"/>
+            <Setter Property="Padding" Value="10,0"/>
+            <Setter Property="MaxHeight" Value="300"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
             <Setter Property="Height" Value="45"/>
             <Setter Property="FontSize" Value="15"/>
             <Setter Property="Template">
@@ -174,7 +179,10 @@
             <Setter Property="Foreground" Value="{DynamicResource FgColor}"/>
             <Setter Property="BorderBrush" Value="{DynamicResource InputBorder}"/>
             <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="Padding" Value="10,6"/>
+            <Setter Property="Margin" Value="10,0,0,0"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="MaxHeight" Value="300"/>
+            <Setter Property="Padding" Value="10,0"/>
             <Setter Property="Height" Value="45"/>
             <Setter Property="FontSize" Value="15"/>
 
@@ -220,60 +228,112 @@
             <Setter Property="Background" Value="{DynamicResource BgColor}" />
             <Setter Property="BorderBrush" Value="{DynamicResource InputBorder}" />
             <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="Padding" Value="10,6"/>
+            <Setter Property="MaxWidth" Value="600"/>
+            <Setter Property="MinWidth" Value="300"/>
+            <Setter Property="MaxHeight" Value="300"/>
+            <Setter Property="Height" Value="45"/>
             <Setter Property="FontSize" Value="15"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="ComboBox">
                         <Grid>
-                            <ToggleButton x:Name="ToggleButton"
-                              Background="{TemplateBinding Background}"
-                              BorderBrush="{TemplateBinding BorderBrush}"
-                              BorderThickness="{TemplateBinding BorderThickness}"
-                              IsChecked="{Binding IsDropDownOpen, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}"
-                              Focusable="False"
-                              Padding="0"
-                              HorizontalContentAlignment="Stretch"> 
-                                <Grid Margin="10,6">
-                                    <!-- THIS replaces the padding -->
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="Auto"/>
-                                    </Grid.ColumnDefinitions>
 
-                                    <!-- TEXT -->
-                                    <ContentPresenter Grid.Column="0"
-                      Margin="0,0,10,0"
-                      VerticalAlignment="Center"
-                      Content="{TemplateBinding SelectionBoxItem}"
-                      RecognizesAccessKey="True"/>
+                            <!-- ✅ MAIN ROUNDED BODY -->
+                            <Border x:Name="MainBorder"
+                CornerRadius="12"
+                Background="{TemplateBinding Background}"
+                BorderBrush="{TemplateBinding BorderBrush}"
+                BorderThickness="{TemplateBinding BorderThickness}">
 
-                                    <!-- ARROW (NOW TRULY AT EDGE) -->
-                                    <TextBlock Grid.Column="1"
-               Text="▼"
-               Margin="0"
-               VerticalAlignment="Center"
-               HorizontalAlignment="Right"
-               Foreground="{DynamicResource FgColor}"/>
-                                </Grid>
-                            </ToggleButton>
+                                <ToggleButton x:Name="ToggleButton"
+                          Background="Transparent"
+                          BorderThickness="0"
+                          IsChecked="{Binding IsDropDownOpen, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}"
+                          Focusable="False"
+                          Padding="0"
+                          HorizontalContentAlignment="Stretch">
 
+                                    <Grid Margin="10,0,10,0">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+
+                                        <!-- Editable Text -->
+                                        <TextBox x:Name="PART_EditableTextBox"
+                             Grid.Column="0"
+                             Visibility="Collapsed"
+                             Background="Transparent"
+                             BorderThickness="0"
+                             Padding="0,6,0,6"
+                             Foreground="{TemplateBinding Foreground}"
+                             VerticalContentAlignment="Center"
+                             IsReadOnly="{TemplateBinding IsReadOnly}"/>
+
+                                        <!-- Selected Item -->
+                                        <ContentPresenter x:Name="ContentSite"
+                                      Grid.Column="0"
+                                      Margin="0,0,10,0"
+                                      VerticalAlignment="Center"
+                                      Content="{TemplateBinding SelectionBoxItem}"/>
+
+                                        <!-- Arrow -->
+                                        <TextBlock Grid.Column="1"
+                               Text="▼"
+                               VerticalAlignment="Center"
+                               Foreground="{DynamicResource FgColor}"/>
+                                    </Grid>
+                                </ToggleButton>
+                            </Border>
+
+                            <!-- ✅ DROPDOWN (separate) -->
                             <Popup IsOpen="{TemplateBinding IsDropDownOpen}"
-                                   Placement="Bottom"
-                                   AllowsTransparency="True"
-                                   Width="{Binding ActualWidth, RelativeSource={RelativeSource TemplatedParent}}"
-                                   StaysOpen="False">
+               Placement="Bottom"
+               AllowsTransparency="True"
+               Width="{Binding ActualWidth, RelativeSource={RelativeSource TemplatedParent}}"
+               StaysOpen="False">
+
                                 <Border Background="{DynamicResource CardColor}"
-                                        BorderBrush="{DynamicResource BorderColor}"
-                                        BorderThickness="1"
-                                        CornerRadius="12"
-                                        Padding="4">
+                    BorderBrush="{DynamicResource BorderColor}"
+                    BorderThickness="1"
+                    CornerRadius="12"
+                    Padding="4">
                                     <ScrollViewer>
                                         <ItemsPresenter />
                                     </ScrollViewer>
                                 </Border>
                             </Popup>
+
                         </Grid>
+
+                        <!-- ✅ STATES -->
+                        <ControlTemplate.Triggers>
+
+                            <Trigger Property="IsEditable" Value="True">
+                                <Setter TargetName="PART_EditableTextBox" Property="Visibility" Value="Visible"/>
+                                <Setter TargetName="ContentSite" Property="Visibility" Value="Collapsed"/>
+                            </Trigger>
+
+                            <Trigger Property="IsEditable" Value="False">
+                                <Setter TargetName="PART_EditableTextBox" Property="Visibility" Value="Collapsed"/>
+                                <Setter TargetName="ContentSite" Property="Visibility" Value="Visible"/>
+                            </Trigger>
+
+                            <!-- 🔥 Hover -->
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="MainBorder"
+                    Property="BorderBrush"
+                    Value="{DynamicResource AccentColor}"/>
+                            </Trigger>
+
+                            <!-- 🔥 Focus -->
+                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="MainBorder"
+                    Property="BorderBrush"
+                    Value="{DynamicResource AccentColor}"/>
+                            </Trigger>
+
+                        </ControlTemplate.Triggers>
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
@@ -282,6 +342,9 @@
             <Setter Property="Padding" Value="10,6"/>
             <Setter Property="Foreground" Value="{DynamicResource FgColor}"/>
             <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="MaxWidth" Value="600"/>
+            <Setter Property="Margin" Value="10,0,0,0"/>
+            <Setter Property="MaxHeight" Value="300"/>
             <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
 
             <Setter Property="Template">
@@ -318,10 +381,12 @@
         </Style>
         <Style TargetType="TextBlock">
             <Setter Property="Foreground" Value="{DynamicResource FgColor}"/>
+            <Setter Property="Margin" Value="10,0,0,0"/>
         </Style>
         <Style x:Key="TitleBarButtonStyle" TargetType="Button">
             <Setter Property="Width" Value="40"/>
             <Setter Property="Height" Value="32"/>
+            <Setter Property="Margin" Value="10,0,0,0"/>
             <Setter Property="Padding" Value="0"/>
             <Setter Property="Background" Value="Transparent"/>
             <Setter Property="Foreground" Value="{DynamicResource FgColor}"/>
