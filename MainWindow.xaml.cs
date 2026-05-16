@@ -37,6 +37,17 @@ namespace fflauncher
         [DllImport("user32.dll")]
         private static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
 
+        [DllImport("user32.dll")]
+        private static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
+
+        private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+
+        [DllImport("user32.dll")]
+        private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool IsWindowVisible(IntPtr hWnd);
         private const int GWL_STYLE = -16;
         private const int WS_CAPTION = 0x00C00000;
         private const int WS_THICKFRAME = 0x00040000;
@@ -58,7 +69,190 @@ namespace fflauncher
             InitializeComponent();
             logger = new Logger(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "launcher.log"));
             logger.Clear();
+            this.StateChanged += MainWindow_StateChanged;
             LoadConfigs();
+            InitializeWindowSize();
+            ApplyTabletMode(configManager?.TabletMode ?? false);
+        }
+
+        private void Window_SizeChanged(object sender, SizeChangedEventArgs e)
+        {
+            if (_isAspectUpdating) return;
+            try
+            {
+                _isAspectUpdating = true;
+                double newWidth = this.Width;
+                double newHeight = this.Height;
+
+                double widthFromHeight = Math.Max(this.MinWidth, Math.Round(newHeight * AspectRatio));
+                double heightFromWidth = Math.Max(this.MinHeight, Math.Round(newWidth / AspectRatio));
+
+                double deltaW = Math.Abs(newWidth - (this.ActualWidth));
+                double deltaH = Math.Abs(newHeight - (this.ActualHeight));
+
+                if (deltaW >= deltaH)
+                {
+                    this.Height = Math.Max(this.MinHeight, heightFromWidth);
+                }
+                else
+                {
+                    this.Width = Math.Max(this.MinWidth, widthFromHeight);
+                }
+            }
+            finally
+            {
+                _isAspectUpdating = false;
+            }
+        }
+
+        private bool _isAspectUpdating = false;
+        private const double AspectRatio = 16.0 / 9.0;
+
+        private void ApplyTabletMode(bool enabled)
+        {
+            try
+            {
+                // First, remove any existing Viewbox wrapping
+                if (this.Content is Viewbox viewbox && viewbox.Child is Border border && border.Name == "RootBorder")
+                {
+                    // Remove RootBorder from Viewbox
+                    viewbox.Child = null;
+                    // Set RootBorder directly as window content
+                    this.Content = border;
+                }
+
+                // Now apply tablet mode if needed
+                if (!enabled)
+                {
+                    this.MaximizeButton.IsEnabled = true;
+                    return;
+                }
+
+                // For tablet mode wrap RootBorder in a Viewbox so UI scales to the screen like before
+                Rect workArea = SystemParameters.WorkArea;
+
+                Viewbox tabletViewbox = new Viewbox
+                {
+                    Stretch = Stretch.Uniform,
+                    StretchDirection = StretchDirection.Both,
+                    Width = workArea.Width,
+                    Height = workArea.Height
+                };
+
+                this.Content = null;
+                tabletViewbox.Child = RootBorder;
+                
+                this.Content = tabletViewbox;
+                this.WindowState = WindowState.Maximized;
+                this.MaximizeButton.IsEnabled = false; // disable maximize button in tablet mode since we're already maximizing and handling resizing ourselves
+                this.Topmost = true;
+            }
+            catch (Exception ex)
+            {
+                logger.Log($"Error applying tablet mode: {ex.Message}", "ERROR");
+            }
+        }
+
+        private void InitializeWindowSize()
+        {
+            const double baseWidth = 900.0;
+            const double baseHeight = 620.0;
+            Rect workArea = SystemParameters.WorkArea;
+
+            double width = Math.Min(Math.Max(baseWidth, workArea.Width * 0.95), Math.Min(workArea.Width, 1600.0));
+            double height = Math.Min(Math.Max(baseHeight, workArea.Height * 0.85), Math.Min(workArea.Height, 900.0));
+
+            this.Width = width;
+            this.Height = height;
+            this.MinWidth = Math.Min(baseWidth, workArea.Width * 0.6);
+            this.MinHeight = Math.Min(baseHeight, workArea.Height * 0.6);
+
+            // Ensure maximize doesn't exceed usable work area
+            this.MaxWidth = workArea.Width;
+            this.MaxHeight = workArea.Height;
+        }
+
+        private void MainWindow_StateChanged(object? sender, EventArgs e)
+        {
+            try
+            {
+                Rect workArea = SystemParameters.WorkArea;
+                if (this.WindowState == WindowState.Maximized)
+                {
+                    // If we're in tablet mode the content will be wrapped in a Viewbox.
+                    if (this.Content is Viewbox vb && vb.Child is Border b && b.Name == "RootBorder")
+                    {
+                        // Expand the viewbox to fill the screen and aggressively fill horizontally
+                        vb.Stretch = Stretch.UniformToFill;
+                        vb.Width = workArea.Width;
+                        vb.Height = workArea.Height;
+                        this.Topmost = true;
+                        if (b != null)
+                            b.CornerRadius = new CornerRadius(0);
+                    }
+                    else
+                    {
+                        // Normal non-tablet maximize behavior
+                        this.Width = workArea.Width;
+                        this.Height = workArea.Height;
+                        this.MaxWidth = workArea.Width;
+                        this.MaxHeight = workArea.Height;
+                        if (RootBorder != null)
+                            RootBorder.CornerRadius = new CornerRadius(0);
+                    }
+                }
+                else
+                {
+                    // Restoring from maximized
+                    if (this.Content is Viewbox vb && vb.Child is Border b && b.Name == "RootBorder")
+                    {
+                        // Use uniform scaling when not maximized so aspect ratio is preserved and not cropped
+                        vb.Stretch = Stretch.Uniform;
+                        this.Topmost = false;
+                        if (b != null)
+                            b.CornerRadius = new CornerRadius(16);
+                    }
+                    else
+                    {
+                        if (RootBorder != null)
+                            RootBorder.CornerRadius = new CornerRadius(16);
+                    }
+                }
+            }
+            catch
+            {
+                // swallow any errors related to state changes at startup
+            }
+        }
+
+        private bool TryMakeProcessWindowBorderless(int processId)
+        {
+            IntPtr found = IntPtr.Zero;
+
+            EnumWindows((hWnd, lParam) =>
+            {
+                GetWindowThreadProcessId(hWnd, out uint pid);
+                if (pid == processId && IsWindowVisible(hWnd))
+                {
+                    found = hWnd;
+                    return false; // stop enumerating
+                }
+
+                return true;
+            }, IntPtr.Zero);
+
+            if (found == IntPtr.Zero)
+                return false;
+
+            int style = GetWindowLong(found, GWL_STYLE);
+            style &= ~(WS_CAPTION | WS_THICKFRAME | WS_SYSMENU);
+            SetWindowLong(found, GWL_STYLE, style);
+
+            Rect work = SystemParameters.WorkArea;
+            SetWindowPos(found, new IntPtr(HWND_TOPMOST), 0, 0, (int)work.Width, (int)work.Height, SWP_FRAMECHANGED | SWP_SHOWWINDOW);
+            ShowWindow(found, SW_MAXIMIZE);
+
+            return true;
         }
 
         public void LoadConfigs()
@@ -70,6 +264,8 @@ namespace fflauncher
                 configs = configManager.LoadConfigs();
 
                 ApplyTheme(configManager.GlobalTheme);
+                // apply tablet mode if enabled in global config
+                ApplyTabletMode(configManager.TabletMode);
 
                 logger.Log($"Loaded {configs.Count} server configs");
 
@@ -351,7 +547,7 @@ namespace fflauncher
             logger.Log($"Launching game for server: {config.Name}");
             Process? serverProcess = null;
 
-            if (config.Mode == "offline" && !string.IsNullOrEmpty(config.ServerPath))
+            if (config.Mode.ToLower() == "offline" && !string.IsNullOrEmpty(config.ServerPath))
             {
                 logger.Log("Starting server");
                 string serverDir = Path.GetDirectoryName(config.ServerPath) ?? string.Empty;
@@ -443,17 +639,20 @@ namespace fflauncher
 
             if (config.Fullscreen == true)
             {
+                // Try to find the client's top-level window by process id and make it borderless fullscreen.
                 DispatcherTimer timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(200) };
                 timer.Tick += (s, e) =>
                 {
-                    var hwnd = FindWindow(null, null);
-                    if (hwnd != IntPtr.Zero)
+                    try
                     {
-                        int style = GetWindowLong(hwnd, GWL_STYLE);
-                        style &= ~(WS_CAPTION | WS_THICKFRAME | WS_SYSMENU);
-                        SetWindowLong(hwnd, GWL_STYLE, style);
-                        SetWindowPos(hwnd, new IntPtr(HWND_TOPMOST), 0, 0, (int)SystemParameters.PrimaryScreenWidth, (int)SystemParameters.PrimaryScreenHeight, SWP_FRAMECHANGED | SWP_SHOWWINDOW);
-                        timer.Stop();
+                        if (TryMakeProcessWindowBorderless(clientProcess.Id))
+                        {
+                            timer.Stop();
+                        }
+                    }
+                    catch
+                    {
+                        // ignore and retry
                     }
                 };
                 timer.Start();
@@ -560,6 +759,16 @@ namespace fflauncher
 
         private void SettingsButton_Click(object sender, RoutedEventArgs e)
         {
+            if(configs == null)
+            {
+                configs = SettingsWindow.EndpointPresets.ToDictionary(p => p.Name, p => new ServerConfig
+                {
+                    Name = p.Name,
+                    Mode = "endpoint",
+                    Address = p.Address
+                });
+            }
+            ;
             var settingsWindow = new SettingsWindow(configManager, configs)
             {
                 Owner = this

@@ -14,6 +14,8 @@ namespace fflauncher
 {
     public partial class SettingsWindow : Window
     {
+        private bool _isAspectUpdating = false;
+        private const double AspectRatio = 16.0 / 9.0;
         private readonly List<string> themeOptions = new()
 {
     "dark",
@@ -85,6 +87,117 @@ namespace fflauncher
             if (currentConfig != null)
             {
                 ServerDropdown.SelectedItem = currentConfig;
+            }
+            TabletModeCheckBox.IsChecked = configManager.TabletMode;
+            ApplyTabletMode(configManager.TabletMode);
+        }
+        private void ApplyTabletMode(bool enabled)
+        {
+            try
+            {
+                // First, remove any existing Viewbox wrapping
+                if (this.Content is Viewbox viewbox && viewbox.Child is Border border && border.Name == "SettingsRootBorder")
+                {
+                    // Remove RootBorder from Viewbox
+                    viewbox.Child = null;
+                    // Set RootBorder directly as window content
+                    this.Content = border;
+                }
+
+                // Now apply tablet mode if needed
+                if (!enabled)
+                {
+                    this.MaximizeButton.IsEnabled = true;
+                    return;
+                }
+                // Now apply tablet mode: wrap SettingsRootBorder in a Viewbox so the UI scales to the screen
+                Rect workArea = SystemParameters.WorkArea;
+
+                Viewbox tabletViewbox = new Viewbox
+                {
+                    Stretch = Stretch.Uniform,
+                    StretchDirection = StretchDirection.Both,
+                    Width = workArea.Width,
+                    Height = workArea.Height
+                };
+                // Remove any direct content and place the root border inside the viewbox
+                this.Content = null;
+
+                tabletViewbox.Child = SettingsRootBorder;
+                this.WindowState = WindowState.Maximized;
+                this.MaximizeButton.IsEnabled = false;
+                this.Content = tabletViewbox;
+
+                // Make the app start fullscreen for tablet mode
+               
+                this.Topmost = true;
+            }
+            catch (Exception ex)
+            {
+            }
+        }
+        private void InitializeWindowSize()
+        {
+            const double baseWidth = 700.0;
+            const double baseHeight = 500.0;
+            Rect workArea = SystemParameters.WorkArea;
+
+            double width = Math.Min(Math.Max(baseWidth, workArea.Width * 0.85), Math.Min(workArea.Width, 1000.0));
+            double height = Math.Min(Math.Max(baseHeight, workArea.Height * 0.85), Math.Min(workArea.Height, 700.0));
+
+            this.Width = width;
+            this.Height = height;
+            this.MinWidth = Math.Min(baseWidth, workArea.Width * 0.75);
+            this.MinHeight = Math.Min(baseHeight, workArea.Height * 0.75);
+            this.MaxWidth = workArea.Width;
+            this.MaxHeight = workArea.Height;
+        }
+
+        private void SettingsWindow_StateChanged(object? sender, EventArgs e)
+        {
+            try
+            {
+                Rect workArea = SystemParameters.WorkArea;
+                if (this.WindowState == WindowState.Maximized)
+                {
+                    // If content is wrapped in a Viewbox for tablet mode, use UniformToFill so it stretches horizontally
+                    if (this.Content is Viewbox vb && vb.Child is Border b && b.Name == "SettingsRootBorder")
+                    {
+                        vb.Stretch = Stretch.UniformToFill;
+                        this.Topmost = true;
+                        if (b != null)
+                            b.CornerRadius = new CornerRadius(0);
+                    }
+                    else
+                    {
+                        this.Width = workArea.Width;
+                        this.Height = workArea.Height;
+                        this.MaxWidth = workArea.Width;
+                        this.MaxHeight = workArea.Height;
+                        if (SettingsRootBorder != null)
+                            SettingsRootBorder.CornerRadius = new CornerRadius(0);
+                    }
+                }
+                else
+                {
+                    // Restoring from maximized: ensure uniform scaling and normal corner radius
+                    if (this.Content is Viewbox vb && vb.Child is Border b && b.Name == "SettingsRootBorder")
+                    {
+                        vb.Stretch = Stretch.Uniform;
+                        this.Topmost = false;
+                        if (b != null)
+                            b.CornerRadius = new CornerRadius(16);
+                    }
+                    else
+                    {
+                        if (SettingsRootBorder != null)
+                            SettingsRootBorder.CornerRadius = new CornerRadius(16);
+                    }
+                }
+            }
+            catch
+            {
+                // ignore errors from state changes
             }
         }
 
@@ -274,12 +387,14 @@ namespace fflauncher
 
             configs[currentConfig.Name] = currentConfig;
             configManager.GlobalTheme = (ThemeDropdown.SelectedItem as string) ?? "dark";
+            configManager.TabletMode = TabletModeCheckBox.IsChecked == true;
             try
             {
                 configManager.SaveConfigs(configs);
                 ApplyTheme(configManager.GlobalTheme);
                 LoadServerList();
                 ServerDropdown.SelectedItem = currentConfig;
+                ApplyTabletMode(configManager.TabletMode);
                 (this.Owner as MainWindow)?.LoadConfigs();
             }
             catch (Exception ex)
@@ -412,6 +527,40 @@ FindParent<RadioButton>(source) != null))
         {
             _settingsDragging = false;
             ServerPanel.ReleaseMouseCapture();
+        }
+
+        private void Window_SizeChanged(object sender, SizeChangedEventArgs e)
+        {
+            if (_isAspectUpdating) return;
+            try
+            {
+                _isAspectUpdating = true;
+                // Determine which dimension the user changed more and adjust the other to maintain 16:9
+                double newWidth = this.Width;
+                double newHeight = this.Height;
+
+                double widthFromHeight = Math.Max(this.MinWidth, Math.Round(newHeight * AspectRatio));
+                double heightFromWidth = Math.Max(this.MinHeight, Math.Round(newWidth / AspectRatio));
+
+                // Compare deltas to decide which side to respect
+                double deltaW = Math.Abs(newWidth - (this.ActualWidth));
+                double deltaH = Math.Abs(newHeight - (this.ActualHeight));
+
+                if (deltaW >= deltaH)
+                {
+                    // Width changed more -> adjust height
+                    this.Height = Math.Max(this.MinHeight, heightFromWidth);
+                }
+                else
+                {
+                    // Height changed more -> adjust width
+                    this.Width = Math.Max(this.MinWidth, widthFromHeight);
+                }
+            }
+            finally
+            {
+                _isAspectUpdating = false;
+            }
         }
 
         public void ApplyTheme(string theme)

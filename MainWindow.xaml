@@ -65,7 +65,8 @@
         </Style>
     </Window.Resources>
 
-    <Border CornerRadius="16"
+    <Border x:Name="RootBorder"
+            CornerRadius="16"
             Background="{DynamicResource BgColor}"
             BorderBrush="{DynamicResource BorderColor}"
             BorderThickness="1"
@@ -118,6 +119,7 @@
                                 Width="40"
                                 Height="32"
                                 Margin="0"
+                                Name="MaximizeButton"
                                 FontFamily="Segoe UI Symbol"
                                 FontSize="16"
                                 Foreground="{DynamicResource FgColor}"

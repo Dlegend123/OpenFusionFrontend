@@ -39,6 +39,7 @@ namespace fflauncher
         }
 
         public string GlobalTheme { get; set; } = "dark";
+        public bool TabletMode { get; set; } = false;
 
         public Dictionary<string, ServerConfig> LoadConfigs()
         {
@@ -49,7 +50,9 @@ namespace fflauncher
 
             var configs = new Dictionary<string, ServerConfig>();
             var iniData = ParseIniFile(configPath);
-            GlobalTheme = GetValue(iniData.ContainsKey("global") ? iniData["global"] : new Dictionary<string, string>(), "theme", "dark");
+            var globalSection = iniData.ContainsKey("global") ? iniData["global"] : new Dictionary<string, string>();
+            GlobalTheme = GetValue(globalSection, "theme", "dark");
+            TabletMode = bool.Parse(GetValue(globalSection, "tablet_mode", "false"));
             string configDir = Path.GetDirectoryName(configPath) ?? "";
 
             foreach (var section in iniData)
@@ -127,6 +130,7 @@ namespace fflauncher
             var lines = new List<string>();
             lines.Add("[global]");
             lines.Add($"theme={GlobalTheme}");
+            lines.Add($"tablet_mode={TabletMode}");
             lines.Add("");
 
             foreach (var kvp in configs)
