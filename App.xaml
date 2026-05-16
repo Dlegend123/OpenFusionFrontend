@@ -1,0 +1,417 @@
+﻿<Application x:Class="fflauncher.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:fflauncher"
+             StartupUri="MainWindow.xaml">
+    <Application.Resources>
+
+        <!-- ===================== THEMES ===================== -->
+
+        <!-- DARK -->
+        <SolidColorBrush x:Key="BgColorDark" Color="#181A1F"/>
+        <SolidColorBrush x:Key="FgColorDark" Color="#E6EDF3"/>
+        <SolidColorBrush x:Key="AccentColorDark" Color="#4FA6FF"/>
+        <SolidColorBrush x:Key="CardColorDark" Color="#22252B"/>
+        <SolidColorBrush x:Key="ButtonColorDark" Color="#2B2F36"/>
+        <SolidColorBrush x:Key="BorderColorDark" Color="#3A3F47"/>
+
+        <!-- LIGHT -->
+        <SolidColorBrush x:Key="BgColorLight" Color="#F5F7FA"/>
+        <SolidColorBrush x:Key="FgColorLight" Color="#0F172A"/>
+        <SolidColorBrush x:Key="AccentColorLight" Color="#3B82F6"/>
+        <SolidColorBrush x:Key="CardColorLight" Color="#FFFFFF"/>
+        <SolidColorBrush x:Key="BorderColorLight" Color="#E2E8F0"/>
+
+        <!-- BLUE -->
+        <SolidColorBrush x:Key="BgColorBlue" Color="#081226"/>
+        <SolidColorBrush x:Key="FgColorBlue" Color="#EAF4FF"/>
+        <SolidColorBrush x:Key="AccentColorBlue" Color="#4FA6FF"/>
+        <SolidColorBrush x:Key="CardColorBlue" Color="#0F1F44"/>
+        <SolidColorBrush x:Key="ButtonColorBlue" Color="#18306B"/>
+        <SolidColorBrush x:Key="BorderColorBlue" Color="#2D5AA7"/>
+
+        <!-- NEON -->
+        <SolidColorBrush x:Key="BgColorNeon" Color="#05060A"/>
+        <SolidColorBrush x:Key="FgColorNeon" Color="#DFFFFF"/>
+        <SolidColorBrush x:Key="AccentColorNeon" Color="#00FFC6"/>
+        <SolidColorBrush x:Key="CardColorNeon" Color="#0D1020"/>
+        <SolidColorBrush x:Key="ButtonColorNeon" Color="#151A3A"/>
+        <SolidColorBrush x:Key="BorderColorNeon" Color="#00E6B8"/>
+
+        <!-- SUNSET -->
+        <SolidColorBrush x:Key="BgColorSunset" Color="#1A1423"/>
+        <SolidColorBrush x:Key="FgColorSunset" Color="#FFEDE5"/>
+        <SolidColorBrush x:Key="AccentColorSunset" Color="#FF8A3D"/>
+        <SolidColorBrush x:Key="CardColorSunset" Color="#24182F"/>
+        <SolidColorBrush x:Key="ButtonColorSunset" Color="#2E1F3C"/>
+        <SolidColorBrush x:Key="BorderColorSunset" Color="#FFB86C"/>
+
+        <!-- FOREST -->
+        <SolidColorBrush x:Key="BgColorForest" Color="#0B1A16"/>
+        <SolidColorBrush x:Key="FgColorForest" Color="#E6FFF6"/>
+        <SolidColorBrush x:Key="AccentColorForest" Color="#34D399"/>
+        <SolidColorBrush x:Key="CardColorForest" Color="#112824"/>
+        <SolidColorBrush x:Key="ButtonColorForest" Color="#183D36"/>
+        <SolidColorBrush x:Key="BorderColorForest" Color="#2C7A6B"/>
+
+        <!-- GREEN -->
+        <SolidColorBrush x:Key="BgColorGreen" Color="#F0FDF4"/>
+        <SolidColorBrush x:Key="FgColorGreen" Color="#052E16"/>
+        <SolidColorBrush x:Key="AccentColorGreen" Color="#22C55E"/>
+        <SolidColorBrush x:Key="CardColorGreen" Color="#FFFFFF"/>
+        <SolidColorBrush x:Key="ButtonColorGreen" Color="#DCFCE7"/>
+        <SolidColorBrush x:Key="BorderColorGreen" Color="#BBF7D0"/>
+
+        <!-- PURPLE -->
+        <SolidColorBrush x:Key="BgColorPurple" Color="#0B0820"/>
+        <SolidColorBrush x:Key="FgColorPurple" Color="#F5F3FF"/>
+        <SolidColorBrush x:Key="AccentColorPurple" Color="#A855F7"/>
+        <SolidColorBrush x:Key="CardColorPurple" Color="#161233"/>
+        <SolidColorBrush x:Key="ButtonColorPurple" Color="#221B4D"/>
+        <SolidColorBrush x:Key="BorderColorPurple" Color="#6D5DF6"/>
+
+        <!-- OCEAN -->
+        <SolidColorBrush x:Key="BgColorOcean" Color="#071926"/>
+        <SolidColorBrush x:Key="FgColorOcean" Color="#E0F2FE"/>
+        <SolidColorBrush x:Key="AccentColorOcean" Color="#38BDF8"/>
+        <SolidColorBrush x:Key="CardColorOcean" Color="#0F2A3D"/>
+        <SolidColorBrush x:Key="ButtonColorOcean" Color="#1B4A63"/>
+        <SolidColorBrush x:Key="BorderColorOcean" Color="#2C7DA0"/>
+
+        <!-- GRAY -->
+        <SolidColorBrush x:Key="BgColorGray" Color="#F9FAFB"/>
+        <SolidColorBrush x:Key="FgColorGray" Color="#111827"/>
+        <SolidColorBrush x:Key="AccentColorGray" Color="#6B7280"/>
+        <SolidColorBrush x:Key="CardColorGray" Color="#FFFFFF"/>
+        <SolidColorBrush x:Key="ButtonColorGray" Color="#E5E7EB"/>
+        <SolidColorBrush x:Key="BorderColorGray" Color="#D1D5DB"/>
+
+        <!-- AMOLED -->
+        <SolidColorBrush x:Key="BgColorAmoled" Color="#000000"/>
+        <SolidColorBrush x:Key="FgColorAmoled" Color="#F9FAFB"/>
+        <SolidColorBrush x:Key="AccentColorAmoled" Color="#3B82F6"/>
+        <SolidColorBrush x:Key="CardColorAmoled" Color="#0A0A0A"/>
+        <SolidColorBrush x:Key="ButtonColorAmoled" Color="#121212"/>
+        <SolidColorBrush x:Key="BorderColorAmoled" Color="#1F2937"/>
+
+        <!-- ===================== ACTIVE (DEFAULT) ===================== -->
+
+        <SolidColorBrush x:Key="BgColor" Color="#081226"/>
+        <SolidColorBrush x:Key="WindowBackground" Color="#081226"/>
+        <SolidColorBrush x:Key="PanelBackground" Color="#0F1F44"/>
+        <SolidColorBrush x:Key="CardColor" Color="#0F1F44"/>
+        <SolidColorBrush x:Key="InputBackground" Color="#0B1A33"/>
+        <SolidColorBrush x:Key="InputBorder" Color="#2D5AA7"/>
+        <SolidColorBrush x:Key="HoverBackground" Color="#18306B"/>
+        <SolidColorBrush x:Key="FgColor" Color="#EAF4FF"/>
+        <SolidColorBrush x:Key="AccentColor" Color="#4FA6FF"/>
+        <SolidColorBrush x:Key="ButtonBackground" Color="#18306B"/>
+        <SolidColorBrush x:Key="ButtonForeground" Color="#FFFFFF"/>
+        <SolidColorBrush x:Key="BorderColor" Color="#2D5AA7"/>
+
+        <Style TargetType="Button">
+            <Setter Property="Foreground" Value="{DynamicResource ButtonForeground}"/>
+            <Setter Property="Background" Value="{DynamicResource ButtonBackground}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource AccentColor}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="MinHeight" Value="44"/>
+            <Setter Property="Padding" Value="14,10"/>
+            <Setter Property="FontSize" Value="15"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Margin" Value="6"/>
+            <Setter Property="SnapsToDevicePixels" Value="True"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Bd"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="14"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource HoverBackground}"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource AccentColor}"/>
+                                <Setter Property="Foreground" Value="{DynamicResource FgColor}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style TargetType="TextBox">
+            <Setter Property="Background" Value="{DynamicResource BgColor}"/>
+            <Setter Property="Foreground" Value="{DynamicResource FgColor}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource InputBorder}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="10,6"/>
+            <Setter Property="Height" Value="45"/>
+            <Setter Property="FontSize" Value="15"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TextBox">
+                        <Border Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="12"
+                                Padding="{TemplateBinding Padding}">
+                            <ScrollViewer x:Name="PART_ContentHost"/>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style TargetType="PasswordBox">
+            <Setter Property="Background" Value="{DynamicResource BgColor}"/>
+            <Setter Property="Foreground" Value="{DynamicResource FgColor}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource InputBorder}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="10,6"/>
+            <Setter Property="Height" Value="45"/>
+            <Setter Property="FontSize" Value="15"/>
+
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="PasswordBox">
+                        <Border x:Name="Bd"
+                        Background="{TemplateBinding Background}"
+                        BorderBrush="{TemplateBinding BorderBrush}"
+                        BorderThickness="{TemplateBinding BorderThickness}"
+                        CornerRadius="12"
+                        Padding="{TemplateBinding Padding}">
+
+                            <!-- REQUIRED: this renders the password (masked) -->
+                            <ScrollViewer x:Name="PART_ContentHost"/>
+                        </Border>
+
+                        <ControlTemplate.Triggers>
+                            <!-- Hover -->
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd"
+                                Property="BorderBrush"
+                                Value="{DynamicResource AccentColor}"/>
+                            </Trigger>
+
+                            <!-- Focus -->
+                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="Bd"
+                                Property="BorderBrush"
+                                Value="{DynamicResource AccentColor}"/>
+                                <Setter TargetName="Bd"
+                                Property="BorderThickness"
+                                Value="1.5"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        
+        <Style TargetType="ComboBox">
+            <Setter Property="Foreground" Value="{DynamicResource FgColor}" />
+            <Setter Property="Background" Value="{DynamicResource BgColor}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource InputBorder}" />
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="10,6"/>
+            <Setter Property="FontSize" Value="15"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ComboBox">
+                        <Grid>
+                            <ToggleButton x:Name="ToggleButton"
+                              Background="{TemplateBinding Background}"
+                              BorderBrush="{TemplateBinding BorderBrush}"
+                              BorderThickness="{TemplateBinding BorderThickness}"
+                              IsChecked="{Binding IsDropDownOpen, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}"
+                              Focusable="False"
+                              Padding="0"
+                              HorizontalContentAlignment="Stretch"> 
+                                <Grid Margin="10,6">
+                                    <!-- THIS replaces the padding -->
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+
+                                    <!-- TEXT -->
+                                    <ContentPresenter Grid.Column="0"
+                      Margin="0,0,10,0"
+                      VerticalAlignment="Center"
+                      Content="{TemplateBinding SelectionBoxItem}"
+                      RecognizesAccessKey="True"/>
+
+                                    <!-- ARROW (NOW TRULY AT EDGE) -->
+                                    <TextBlock Grid.Column="1"
+               Text="▼"
+               Margin="0"
+               VerticalAlignment="Center"
+               HorizontalAlignment="Right"
+               Foreground="{DynamicResource FgColor}"/>
+                                </Grid>
+                            </ToggleButton>
+
+                            <Popup IsOpen="{TemplateBinding IsDropDownOpen}"
+                                   Placement="Bottom"
+                                   AllowsTransparency="True"
+                                   Width="{Binding ActualWidth, RelativeSource={RelativeSource TemplatedParent}}"
+                                   StaysOpen="False">
+                                <Border Background="{DynamicResource CardColor}"
+                                        BorderBrush="{DynamicResource BorderColor}"
+                                        BorderThickness="1"
+                                        CornerRadius="12"
+                                        Padding="4">
+                                    <ScrollViewer>
+                                        <ItemsPresenter />
+                                    </ScrollViewer>
+                                </Border>
+                            </Popup>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style TargetType="ComboBoxItem">
+            <Setter Property="Padding" Value="10,6"/>
+            <Setter Property="Foreground" Value="{DynamicResource FgColor}"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ComboBoxItem">
+                        <Border x:Name="Bd"
+                        Background="{TemplateBinding Background}"
+                        Padding="{TemplateBinding Padding}">
+
+                            <ContentPresenter
+                        Content="{TemplateBinding Content}"
+                        ContentTemplate="{TemplateBinding ContentTemplate}"
+                        ContentStringFormat="{TemplateBinding ContentStringFormat}"
+                        HorizontalAlignment="Left"
+                        VerticalAlignment="Center"
+                        RecognizesAccessKey="True"
+                        TextElement.Foreground="{TemplateBinding Foreground}"/>
+                        </Border>
+
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsHighlighted" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource AccentColor}"/>
+                                <Setter Property="Foreground" Value="{DynamicResource FgColor}"/>
+                            </Trigger>
+
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource AccentColor}"/>
+                                <Setter Property="Foreground" Value="{DynamicResource FgColor}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource FgColor}"/>
+        </Style>
+        <Style x:Key="TitleBarButtonStyle" TargetType="Button">
+            <Setter Property="Width" Value="40"/>
+            <Setter Property="Height" Value="32"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="{DynamicResource FgColor}"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Bg"
+                                Background="{TemplateBinding Background}"
+                                CornerRadius="0"
+                                ClipToBounds="True">
+                            <ContentPresenter
+                                HorizontalAlignment="Center"
+                                VerticalAlignment="Center"/>
+                        </Border>
+
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bg"
+                                        Property="Background"
+                                        Value="{DynamicResource BorderColor}"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Bg"
+                                        Property="Background"
+                                        Value="{DynamicResource AccentColor}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="TitleBarCloseButtonStyle" TargetType="Button" BasedOn="{StaticResource TitleBarButtonStyle}">
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Bg"
+                                Background="{TemplateBinding Background}"
+                                CornerRadius="0,16,0,0"
+                                ClipToBounds="True">
+                            <ContentPresenter
+                                HorizontalAlignment="Center"
+                                VerticalAlignment="Center"/>
+                        </Border>
+
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bg"
+                                        Property="Background"
+                                        Value="{DynamicResource BorderColor}"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Bg"
+                                        Property="Background"
+                                        Value="{DynamicResource AccentColor}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style TargetType="ScrollBar">
+            <Setter Property="Background" Value="{DynamicResource CardColor}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderColor}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Width" Value="16"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ScrollBar">
+                        <Grid>
+                            <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}"/>
+                            <Track x:Name="PART_Track" IsDirectionReversed="True">
+                                <Track.DecreaseRepeatButton>
+                                    <RepeatButton Command="ScrollBar.PageUpCommand" Background="Transparent" BorderBrush="Transparent"/>
+                                </Track.DecreaseRepeatButton>
+                                <Track.IncreaseRepeatButton>
+                                    <RepeatButton Command="ScrollBar.PageDownCommand" Background="Transparent" BorderBrush="Transparent"/>
+                                </Track.IncreaseRepeatButton>
+                                <Track.Thumb>
+                                    <Thumb Background="{DynamicResource CardColor}" BorderBrush="{DynamicResource BorderColor}" BorderThickness="1"/>
+                                </Track.Thumb>
+                            </Track>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+    </Application.Resources>
+</Application>
