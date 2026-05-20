@@ -1,23 +1,19 @@
-﻿using System;
-using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.IO;
-using System.Linq;
-using System.Net.Http;
 using System.Runtime.InteropServices;
-using System.Text.Json;
-using System.Text.Json.Serialization;
-using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
+using static System.Windows.Forms.VisualStyles.VisualStyleElement.StartPanel;
+using Application = System.Windows.Application;
+using Brush = System.Windows.Media.Brush;
+using Brushes = System.Windows.Media.Brushes;
 using Button = System.Windows.Controls.Button;
 using Color = System.Windows.Media.Color;
-using MessageBox = System.Windows.MessageBox;
 using MouseEventArgs = System.Windows.Input.MouseEventArgs;
 using Orientation = System.Windows.Controls.Orientation;
 using Point = System.Windows.Point;
@@ -29,66 +25,53 @@ namespace fflauncher
     /// Interaction logic for MainWindow.xaml
     /// </summary>
     public partial class MainWindow : Window
-    {
-        [DllImport("user32.dll")]
-        private static extern IntPtr FindWindow(string lpClassName, string lpWindowTitle);
-
-        [DllImport("user32.dll")]
-        private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
-
-        [DllImport("user32.dll")]
-        private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
-
-        [DllImport("user32.dll")]
-        private static extern int GetWindowLong(IntPtr hWnd, int nIndex);
-
-        [DllImport("user32.dll")]
-        private static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
-
-        [DllImport("user32.dll")]
-        private static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
-
-        private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
-
-        [DllImport("user32.dll")]
-        private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
-
-        [DllImport("user32.dll")]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        private static extern bool IsWindowVisible(IntPtr hWnd);
-        private const int GWL_STYLE = -16;
-        private const int WS_CAPTION = 0x00C00000;
-        private const int WS_THICKFRAME = 0x00040000;
-        private const int WS_SYSMENU = 0x00080000;
-        private const int SWP_FRAMECHANGED = 0x0020;
-        private const int SWP_NOMOVE = 0x0002;
-        private const int SWP_NOSIZE = 0x0001;
-        private const int SWP_NOZORDER = 0x0004;
-        private const int SWP_SHOWWINDOW = 0x0040;
-        private const int HWND_TOPMOST = -1;
-        private const int SW_MAXIMIZE = 3;
-        private ConfigManager configManager;
-        private Dictionary<string, ServerConfig> configs;
-        private ServerConfig selectedConfig;
-        private ServerConfig? currentConfig;
-        private ServerConfig? currentEndpoint;
-        private readonly Dictionary<string, Color> _customThemeColors = new();
-        private readonly List<string> themeOptions = new()
+    {   
+        private static readonly Brush ToastInfoBackground = Brushes.DimGray;
+        private static readonly Brush ToastSuccessBackground = CreateFrozenBrush(Color.FromRgb(56, 162, 116));
+        private static readonly Brush ToastWarningBackground = CreateFrozenBrush(Color.FromRgb(222, 176, 18));
+        private static readonly Brush ToastErrorBackground = CreateFrozenBrush(Color.FromRgb(215, 86, 58));
+        private static readonly Brush ToastForeground = Brushes.White;
+        private static SolidColorBrush CreateFrozenBrush(Color color)
         {
-            "dark",
-            "light",
-            "blue",
-            "neon",
-            "green",
-            "sunset",
-            "gray",
-            "amoled",
-            "custom"
-        };
-        private bool _settingsDragging;
-        private Point _settingsStartPoint;
-        private double _settingsStartOffset;
+            var brush = new SolidColorBrush(color);
+            brush.Freeze();
+            return brush;
+        }
+        private ConfigManager configManager;
+        Dictionary<string, ServerConfig> configs; // key = Id
+        private ServerConfig selectedConfig;
+        private ServerConfig editingConfig;
+        private ServerConfig? ActiveConfig =>
+    ServerCarousel.SelectedItem is ServerConfig c && !c.IsAddNew ? c : null;
+        private readonly HashSet<string> _imageLoading = new(StringComparer.OrdinalIgnoreCase);
+        private GameLauncher gameLauncher;
+        private readonly Dictionary<string, ImageSource> _imageCache = new();
+        private readonly ObservableCollection<ServerConfig> _configList = new();
+        private static readonly List<string> ThemeMap =
+         new List<string>
+            {
+                "Blue",
+                "Gray",
+                "Neon",
+                "Forest",
+                "Corruption",
+                "Nano",
+                "Tech",
+                "Apocalypse",
+                "Cosmic",
+                "Purple",
+                "Sunset",
+                "Amoled"
+            };
         private Logger logger;
+
+        private enum ToastType
+        {
+            Info,
+            Success,
+            Warning,
+            Error
+        }
 
         public static readonly List<ServerConfig> EndpointPresets = new()
         {
@@ -120,202 +103,210 @@ namespace fflauncher
             }
         };
 
-        public MainWindow()
+
+        public MainWindow(Logger logger)
         {
             InitializeComponent();
-            logger = new Logger(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "launcher.log"));
-            logger.Clear();
-            LoadConfigs();
-            InitializeWindowSize();
-            ApplyTabletMode(configManager?.TabletMode ?? false);
+            this.logger = logger;
+
+            Closed += (_, _) => logger.Dispose();
+
+            string configPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "config.json");
+            configManager = new ConfigManager(configPath);   // ✅ create once here
+            configs = configManager.LoadConfigs();
+            gameLauncher = new GameLauncher(logger, configManager);
+
+            try
+            {
+                ApplyTheme(configManager.GlobalTheme);
+
+                var defaultCfg = configManager.GetDefaultConfig();
+                if (configManager.BypassGui && defaultCfg != null)
+                {
+                    this.Hide();
+                    Dispatcher.BeginInvoke(async () =>
+                    {
+                        try
+                        {
+                            await gameLauncher.LaunchAsync(defaultCfg);
+                        }
+                        catch (Exception ex)
+                        {
+                            logger.Log($"Bypass GUI launch failed: {ex.Message}", "ERROR");
+                        }
+                        finally
+                        {
+                            Application.Current.Shutdown();
+                        }
+                    });
+                }
+            }
+            catch { }
+
+            Loaded += MainWindow_Loaded;
         }
 
-        private bool _isAspectUpdating = false;
-        private const double AspectRatio = 16.0 / 9.0;
+        private async void MainWindow_Loaded(object sender, RoutedEventArgs e)
+        {
+            Loaded -= MainWindow_Loaded;
+            await InitializeAsync();
+            ServerDropdown.ItemsSource = _configList;
+        }
 
-        public void ApplyTabletMode(bool enabled)
+        private async Task InitializeAsync()
         {
             try
             {
-                if (this.Content is Viewbox viewbox && viewbox.Child is Border border && border.Name == "RootBorder")
+                PopulateConfigsUI();
+
+                // wait for UI to finish generating
+                await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.Loaded);
+
+                // 🔥 NEW: preload all carousel images after configs load
+                _ = PreloadAllCarouselImages();
+
+                if (configs.Any())
                 {
-                    viewbox.Child = null;
-                    this.Content = border;
+                    var first = configs.Values.FirstOrDefault();
+                    if (first != null)
+                    {
+                        ServerCarousel.SelectedItem = first;
+                        ServerDropdown.SelectedItem = first;
+                        selectedConfig = first;
+                        LoadConfigToForm(first);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.Log($"InitializeAsync error: {ex.Message}", "ERROR");
+            }
+            finally
+            {
+                Show();
+                Visibility = Visibility.Visible;
+                ShowInTaskbar = true;
+            }
+        }
+
+        private async Task PreloadAllCarouselImages()
+        {
+            try
+            {
+                if (_configList == null || _configList.Count == 0)
+                    return;
+
+                var tasks = new List<Task>();
+
+                foreach (var cfg in _configList)
+                {
+                    if (cfg == null || cfg.IsAddNew)
+                        continue;
+
+                    tasks.Add(LoadImageAsync(cfg));
                 }
 
-                if (!enabled)
+                await Task.WhenAll(tasks);
+            }
+            catch (Exception ex)
+            {
+                logger.Log($"PreloadAllCarouselImages failed: {ex.Message}", "WARN");
+            }
+        }
+
+        private void PopulateConfigsUI()
+        {
+            if (configs == null) return;
+
+            logger.Log($"Loaded {configs.Count} server configs");
+
+            _configList.Clear();
+
+            var seen = new HashSet<string>();
+
+            foreach (var cfg in configs.Values)
+            {
+                if (cfg == null || string.IsNullOrEmpty(cfg.Id))
+                    continue;
+
+                // ✅ prevent duplicates by Id
+                if (!seen.Add(cfg.Id))
+                    continue;
+
+                _configList.Add(cfg);
+            }
+
+            _configList.Add(new ServerConfig { Name = "+", IsAddNew = true });
+
+            ServerCarousel.ItemsSource = _configList;
+        }
+
+        private async Task LoadImageAsync(ServerConfig cfg)
+        {
+            if (cfg == null || cfg.IsAddNew)
+                return;
+
+            if (string.IsNullOrWhiteSpace(cfg.ImagePath))
+                return;
+
+            var imagePath = cfg.ImagePath.Trim();
+            if (imagePath.Length == 0)
+                return;
+
+            // SINGLE atomic check + add
+            if (!_imageLoading.Add(imagePath))
+                return;
+
+            try
+            {
+                if (_imageCache.TryGetValue(imagePath, out var cached))
                 {
-                    this.MaximizeButton.IsEnabled = true;
-                    this.Topmost = false;
-                    if (this.WindowState == WindowState.Maximized)
-                    {
-                        this.WindowState = WindowState.Normal;
-                    }
+                    cfg.Image = cached;
                     return;
                 }
 
-                Rect workArea = SystemParameters.WorkArea;
+                ImageSource? bmp = null;
 
-                Viewbox tabletViewbox = new Viewbox
+                await Task.Run(() =>
                 {
-                    Stretch = Stretch.Uniform,
-                    StretchDirection = StretchDirection.Both,
-                    Width = workArea.Width,
-                    Height = workArea.Height
-                };
-
-                this.Content = null;
-                tabletViewbox.Child = RootBorder;
-
-                this.Content = tabletViewbox;
-                this.WindowState = WindowState.Maximized;
-                this.MaximizeButton.IsEnabled = false; // disable maximize button in tablet mode since we're already maximizing and handling resizing ourselves
-            }
-            catch (Exception ex)
-            {
-                logger.Log($"Error applying tablet mode: {ex.Message}", "ERROR");
-            }
-        }
-
-        private void InitializeWindowSize()
-        {
-            const double baseWidth = 900.0;
-            const double baseHeight = 620.0;
-            Rect workArea = SystemParameters.WorkArea;
-
-            double width = Math.Min(Math.Max(baseWidth, workArea.Width * 0.95), Math.Min(workArea.Width, 1600.0));
-            double height = Math.Min(Math.Max(baseHeight, workArea.Height * 0.85), Math.Min(workArea.Height, 900.0));
-            var systemHeight = SystemParameters.PrimaryScreenHeight;
-            var systemWidth = SystemParameters.PrimaryScreenWidth;
-
-            this.MinWidth = Math.Min(baseWidth, workArea.Width * 0.6);
-            this.MinHeight = Math.Min(baseHeight, workArea.Height * 0.6);
-
-            // Ensure maximize doesn't exceed usable work area
-            this.MaxWidth = systemWidth;
-            this.MaxHeight = systemHeight;
-        }
-
-        private void MainWindow_StateChanged(object? sender, EventArgs e)
-        {
-            try
-            {
-                Rect workArea = SystemParameters.WorkArea;
-                if (this.WindowState == WindowState.Maximized)
-                {
-                    // If we're in tablet mode the content will be wrapped in a Viewbox.
-                    if (this.Content is Viewbox vb && vb.Child is Border b && b.Name == "RootBorder")
+                    try
                     {
-                        // Expand the viewbox to fill the screen and aggressively fill horizontally
-                        vb.Stretch = Stretch.Uniform;
-                        vb.Width = workArea.Width;
-                        vb.Height = workArea.Height;
-                        this.Topmost = true;
-                        if (b != null)
-                            b.CornerRadius = new CornerRadius(0);
+                        using var stream = new FileStream(imagePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+                        var frame = BitmapFrame.Create(stream, BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.OnLoad);
+                        frame.Freeze();
+                        bmp = frame;
                     }
-                    else
+                    catch (Exception ex)
                     {
-                        // Normal non-tablet maximize behavior
-                        this.Width = workArea.Width;
-                        this.Height = workArea.Height;
-                        this.MaxWidth = workArea.Width;
-                        this.MaxHeight = workArea.Height;
-                        if (RootBorder != null)
-                            RootBorder.CornerRadius = new CornerRadius(0);
+                        logger.Log($"Bitmap creation failed for {imagePath}: {ex.Message}", "WARN");
                     }
-                }
-                else
-                {
-                    // Restoring from maximized
-                    if (this.Content is Viewbox vb && vb.Child is Border b && b.Name == "RootBorder")
-                    {
-                        // Use uniform scaling when not maximized so aspect ratio is preserved and not cropped
-                        vb.Stretch = Stretch.Uniform;
-                        this.Topmost = false;
-                        if (b != null)
-                            b.CornerRadius = new CornerRadius(16);
-                    }
-                    else
-                    {
-                        if (RootBorder != null)
-                            RootBorder.CornerRadius = new CornerRadius(16);
-                    }
-                }
-            }
-            catch
-            {
-                // swallow any errors related to state changes at startup
-            }
-        }
-
-        private bool TryMakeProcessWindowBorderless(int processId)
-        {
-            IntPtr found = IntPtr.Zero;
-
-            EnumWindows((hWnd, lParam) =>
-            {
-                GetWindowThreadProcessId(hWnd, out uint pid);
-                if (pid == processId && IsWindowVisible(hWnd))
-                {
-                    found = hWnd;
-                    return false; // stop enumerating
-                }
-
-                return true;
-            }, IntPtr.Zero);
-
-            if (found == IntPtr.Zero)
-                return false;
-
-            int style = GetWindowLong(found, GWL_STYLE);
-            style &= ~(WS_CAPTION | WS_THICKFRAME | WS_SYSMENU);
-            SetWindowLong(found, GWL_STYLE, style);
-
-            Rect work = SystemParameters.WorkArea;
-            SetWindowPos(found, new IntPtr(HWND_TOPMOST), 0, 0, (int)work.Width, (int)work.Height, SWP_FRAMECHANGED | SWP_SHOWWINDOW);
-            ShowWindow(found, SW_MAXIMIZE);
-
-            return true;
-        }
-
-        public void LoadConfigs()
-        {
-            try
-            {
-                string configPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "config.ini");
-                configManager = new ConfigManager(configPath);
-                configs = configManager.LoadConfigs();
-
-                ApplyTheme(configManager.GlobalTheme);
-                // apply tablet mode if enabled in global config
-                ApplyTabletMode(configManager.TabletMode);
-
-                logger.Log($"Loaded {configs.Count} server configs");
-
-                var list = configs.Values.ToList();
-
-                // 👇 Add "+" item at the end
-                list.Add(new ServerConfig
-                {
-                    Name = "+",
-                    IsAddNew = true
                 });
 
-                ServerCarousel.ItemsSource = list;
-
-                // Ensure carousel is interactable after reloading
-                ServerCarousel.IsEnabled = true;
-                ServerCarousel.IsHitTestVisible = true;
-                ServerCarousel.UpdateLayout();
-
-                if (list.Any())
-                    ServerCarousel.SelectedItem = list[0];
+                if (bmp != null)
+                {
+                    if (Dispatcher.CheckAccess())
+                    {
+                        _imageCache[imagePath] = bmp;
+                        cfg.Image = bmp;
+                    }
+                    else
+                    {
+                        await Dispatcher.InvokeAsync(() =>
+                        {
+                            _imageCache[imagePath] = bmp;
+                            cfg.Image = bmp;
+                        });
+                    }
+                }
             }
             catch (Exception ex)
             {
-                logger.Log($"Error loading config: {ex.Message}", "ERROR");
-                MessageBox.Show($"Error loading config: {ex.Message}");
+                logger.Log($"LoadImageAsync error: {ex.Message}", "ERROR");
+            }
+            finally
+            {
+                if (!string.IsNullOrEmpty(imagePath))
+                    _imageLoading.Remove(imagePath);
             }
         }
 
@@ -330,44 +321,30 @@ namespace fflauncher
             SettingsHeader.Visibility = Visibility.Visible;
             SaveButton.Visibility = Visibility.Visible;
 
-            if (editConfig != null)
-            {
-                currentConfig = editConfig;
-                if (!configs.ContainsKey(editConfig.Name))
-                    configs[editConfig.Name] = editConfig;
-            }
-            else if (currentConfig == null && selectedConfig != null)
-            {
-                currentConfig = selectedConfig;
-            }
-            else if (currentConfig == null && configs.Any())
-            {
-                currentConfig = configs.Values.First();
-            }
+            editingConfig = editConfig ?? ActiveConfig;
+            // 🔥 ALWAYS prioritize carousel selection first
+            ThemeDropdown.ItemsSource = ThemeMap;
+            ThemeDropdown.SelectedItem = configManager.GlobalTheme ?? "fusionfall";
 
-            LoadServerList();
-
-            ThemeDropdown.ItemsSource = themeOptions;
-            ThemeDropdown.SelectedItem = configManager.GlobalTheme ?? "dark";
-            CustomThemePanel.Visibility = ThemeDropdown.SelectedItem as string == "custom"
-                ? Visibility.Visible
-                : Visibility.Collapsed;
-            TabletModeCheckBox.IsChecked = configManager.TabletMode;
-
-            if (currentConfig != null)
+            if (editingConfig.IsAddNew)
             {
-                ServerDropdown.SelectedItem = currentConfig;
-                LoadEndpointPresets(currentConfig);
-                LoadConfigToForm(currentConfig);
+                ServerDropdown.SelectedItem = ServerDropdown.Items.Cast<ServerConfig>().FirstOrDefault(c => c.Name == "+");
             }
+            else
+            {
+                ServerDropdown.SelectedItem = editingConfig;
+            }
+            
+            LoadConfigToForm(editingConfig);
+            LoadEndpointPresets(editingConfig);
+            SectionChanged(SettingsButton, new RoutedEventArgs());
 
-            SectionChanged(ServerSectionBtn, new RoutedEventArgs());
         }
 
         private void ShowLauncherView()
         {
-            TitleTextBlock.Text = "OpenFusion Launcher";
-            BackButton.Visibility = Visibility.Collapsed;
+            TitleTextBlock.Text = "FusionFall Frontend";
+            BackButton.Visibility = Visibility.Hidden;
             SettingsButton.Visibility = Visibility.Visible;
             LauncherHeader.Visibility = Visibility.Visible;
             LauncherView.Visibility = Visibility.Visible;
@@ -376,62 +353,166 @@ namespace fflauncher
             SettingsHeader.Visibility = Visibility.Collapsed;
             SaveButton.Visibility = Visibility.Collapsed;
 
-            if (selectedConfig != null)
+            Dispatcher.InvokeAsync(() =>
             {
                 DisplayConfigDetails(selectedConfig);
+            }, DispatcherPriority.Background);
+
+        }
+
+        private void ShowToast(string message, string title = "", MessageBoxButton buttons = MessageBoxButton.OK, MessageBoxImage icon = MessageBoxImage.None)
+        {
+            ToastType type = ToastType.Info;
+            if (icon == MessageBoxImage.Error)
+                type = ToastType.Error;
+            else if (icon == MessageBoxImage.Warning)
+                type = ToastType.Warning;
+            else if (icon == MessageBoxImage.Information)
+                type = ToastType.Success;
+            else if (!string.IsNullOrEmpty(title))
+            {
+                ReadOnlySpan<char> t = title.AsSpan();
+
+                bool hasError = t.Contains("error", StringComparison.OrdinalIgnoreCase) ||
+                                t.Contains("failed", StringComparison.OrdinalIgnoreCase);
+
+                bool hasWarning = t.Contains("warning", StringComparison.OrdinalIgnoreCase);
+
+                bool hasSuccess = t.Contains("success", StringComparison.OrdinalIgnoreCase) ||
+                                  t.Contains("saved", StringComparison.OrdinalIgnoreCase) ||
+                                  t.Contains("completed", StringComparison.OrdinalIgnoreCase);
+
+                if (hasError)
+                    type = ToastType.Error;
+                else if (hasWarning)
+                    type = ToastType.Warning;
+                else if (hasSuccess)
+                    type = ToastType.Success;
             }
+
+            ShowToast(message, type, title);
+        }
+
+        private void ShowToast(string message, ToastType type, string title = "")
+        {
+            Brush background = ToastInfoBackground;
+
+            switch (type)
+            {
+                case ToastType.Error:
+                    background = ToastErrorBackground;
+                    break;
+
+                case ToastType.Warning:
+                    background = ToastWarningBackground;
+                    break;
+
+                case ToastType.Success:
+                    background = ToastSuccessBackground;
+                    break;
+
+                default:
+                    background = TryFindResource("CardColor") as Brush ?? ToastInfoBackground;
+                    break;
+            }
+
+            var toast = new ToastWindow(message, title, background, ToastForeground);
+            toast.Show();
+
+            var timer = new DispatcherTimer
+            {
+                Interval = TimeSpan.FromSeconds(3)
+            };
+
+            timer.Tick += (s, e) =>
+            {
+                timer.Stop();
+                toast.Close();
+            };
+
+            timer.Start();
         }
 
         private void LoadEndpointPresets(ServerConfig config)
         {
             try
             {
-                var list = EndpointPresets.Select(x => x.Address).ToList();
+                var list = new List<string>(EndpointPresets.Count + 1);
+                var addresses = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-                if (!string.IsNullOrEmpty(config?.Address) &&
-                    !list.Contains(config.Address))
+                foreach (var preset in EndpointPresets)
                 {
-                    list.Add(config.Address);
+                    var addr = preset.Address;
+                    if (string.IsNullOrEmpty(addr))
+                        continue;
+
+                    if (addresses.Add(addr))
+                        list.Add(addr);
+                }
+
+                var current = config?.Address;
+                if (!string.IsNullOrEmpty(current) && addresses.Add(current))
+                {
+                    list.Add(current);
                 }
 
                 AddressComboBox.ItemsSource = list;
-                AddressComboBox.SelectedItem = config.Address;
+                AddressComboBox.SelectedItem = current;
             }
             catch { }
         }
 
-        private void LoadServerList()
+        public static void SmoothScrollTo(ScrollViewer sv, double to, int durationMs = 300)
         {
-            var list = configs.Values.ToList();
-            ServerDropdown.ItemsSource = list;
-            if (list.Any())
+            double from = sv.HorizontalOffset;
+            double delta = to - from;
+            int frames = durationMs / 15; // ~60fps
+            int currentFrame = 0;
+
+            var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(15) };
+            timer.Tick += (s, e) =>
             {
-                if (currentConfig != null && list.Contains(currentConfig))
-                {
-                    ServerDropdown.SelectedItem = currentConfig;
-                }
-                else
-                {
-                    ServerDropdown.SelectedItem = list[0];
-                }
-            }
-            else
-            {
-                currentConfig = null;
-            }
+                currentFrame++;
+                double progress = (double)currentFrame / frames;
+                // ease-out curve
+                double eased = 1 - Math.Pow(1 - progress, 3);
+                sv.ScrollToHorizontalOffset(from + delta * eased);
+
+                if (currentFrame >= frames)
+                    timer.Stop();
+            };
+            timer.Start();
         }
+
 
         private void ServerDropdown_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             if (ServerDropdown.SelectedItem is ServerConfig config)
             {
-                currentConfig = config;
+
+                if(config.Name == "+")
+                {
+                    
+                    LoadEndpointPresets(config);
+                }
+                else
+                {
+                    if (editingConfig != null && config.Id != editingConfig.Id)
+                        return;
+                }
+
                 LoadConfigToForm(config);
             }
         }
 
         private void SectionChanged(object sender, RoutedEventArgs e)
         {
+            if(sender is Button settingsButton)
+            {
+                ServerSectionBtn.IsChecked = true;
+                ThemeSectionBtn.IsChecked = false;
+
+            }
             if (ServerPanel != null && ThemePanel != null)
             {
                 if (ServerSectionBtn.IsChecked == true)
@@ -455,6 +536,7 @@ namespace fflauncher
             ServerPathTextBox.Text = config.ServerPath;
             ClientPathTextBox.Text = config.ClientPath;
             CacheDirTextBox.Text = config.CacheDir;
+            AddressComboBox.Text = config.Address;
             UsernameTextBox.Text = config.Username;
             TokenPasswordBox.Password = config.Token;
             LogFileTextBox.Text = config.LogFile;
@@ -466,55 +548,111 @@ namespace fflauncher
             ImagePathTextBox.Text = config.ImagePath;
         }
 
-        private void Save_Click(object sender, RoutedEventArgs e)
+        private async void Save_Click(object sender, RoutedEventArgs e)
         {
-            if (currentConfig == null)
+            if (editingConfig == null) return;
+
+            var button = sender as Button;
+            if (button != null) button.IsEnabled = false;
+
+            var name = NameTextBox.Text?.Trim();
+
+            if (string.IsNullOrEmpty(name))
+            {
+                ShowToast("The config name cannot be empty.", "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
-
-            var oldName = currentConfig.Name;
-
-            currentConfig.Name = NameTextBox.Text;
-            currentConfig.Mode = ModeOnlineRadio.IsChecked == true ? "Online" : "Offline";
-            currentConfig.ServerPath = ServerPathTextBox.Text;
-            currentConfig.ClientPath = ClientPathTextBox.Text;
-            currentConfig.CacheDir = CacheDirTextBox.Text;
-            currentConfig.Address = AddressComboBox.Text;
-            currentConfig.Username = UsernameTextBox.Text;
-            currentConfig.Token = TokenPasswordBox.Password;
-            currentConfig.LogFile = LogFileTextBox.Text;
-            currentConfig.Verbose = VerboseCheckBox.IsChecked == true;
-            currentConfig.DxvkHud = DxvkHudCheckBox.IsChecked == true;
-            currentConfig.FpsLimit = FpsLimitTextBox.Text;
-            currentConfig.GraphicsApi = GraphicsApiTextBox.Text;
-            currentConfig.Fullscreen = FullscreenCheckBox.IsChecked == true;
-            currentConfig.ImagePath = ImagePathTextBox.Text;
-
-            if (oldName != currentConfig.Name && configs.ContainsKey(oldName))
-            {
-                configs.Remove(oldName);
             }
 
-            configs[currentConfig.Name] = currentConfig;
+            var updatedConfig = new ServerConfig
+            {
+                Id = editingConfig.Id,
+                Name = name,
+                Mode = ModeOnlineRadio.IsChecked == true ? "online" : "offline",
+                ServerPath = ServerPathTextBox.Text,
+                ClientPath = ClientPathTextBox.Text,
+                CacheDir = CacheDirTextBox.Text,
+                Address = AddressComboBox.Text,
+                Username = UsernameTextBox.Text,
+                Token = TokenPasswordBox.Password,
+                LogFile = LogFileTextBox.Text,
+                Verbose = VerboseCheckBox.IsChecked == true,
+                DxvkHud = DxvkHudCheckBox.IsChecked == true,
+                FpsLimit = FpsLimitTextBox.Text,
+                GraphicsApi = GraphicsApiTextBox.Text,
+                Fullscreen = FullscreenCheckBox.IsChecked == true,
+                ImagePath = ImagePathTextBox.Text,
+            };
+
+            // OPTIONAL: prevent duplicate names (UI rule, not storage rule)
+            if (configs.Values.Any(c =>
+                c.Id != updatedConfig.Id &&
+                string.Equals(c.Name, updatedConfig.Name, StringComparison.OrdinalIgnoreCase)))
+            {
+                ShowToast("A config with this name already exists.", "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+                if (button != null) button.IsEnabled = true;
+                return;
+            }
+
+            // 🔥 ONLY THIS matters now
+            configs[updatedConfig.Id] = updatedConfig;
+
+            editingConfig = configs[updatedConfig.Id]; // ✅ always use dictionary instance
+
             configManager.GlobalTheme = ThemeDropdown.SelectedItem as string ?? configManager.GlobalTheme;
-            configManager.TabletMode = TabletModeCheckBox.IsChecked == true;
 
-            try
+            // run IO OFF UI thread
+            await Task.Run(() => configManager.SaveConfigs(configs));
+
+            await Dispatcher.InvokeAsync(() =>
             {
-                configManager.SaveConfigs(configs);
-                ApplyTheme(configManager.GlobalTheme);
-                LoadConfigs();
-                LoadServerList();
-                if (currentConfig != null)
+
+                if (configs.TryGetValue(updatedConfig.Id, out var match))
                 {
-                    ServerDropdown.SelectedItem = currentConfig;
-                    LoadConfigToForm(currentConfig);
+                    ServerCarousel.SelectedItem = match;
+                    ServerDropdown.SelectedItem = match;
+                    selectedConfig = match;
                 }
-                MessageBox.Show("Settings saved successfully.", "Success", MessageBoxButton.OK, MessageBoxImage.Information);
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Error saving config: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-            }
+
+                LoadConfigToForm(selectedConfig);
+                ApplyTheme(configManager.GlobalTheme);
+
+                var selected = selectedConfig;
+
+                // remove old instance
+                var existing = _configList.FirstOrDefault(c => c.Id == updatedConfig.Id);
+                if (existing != null)
+                {
+                    existing.Name = updatedConfig.Name;
+                    existing.Mode = updatedConfig.Mode;
+                    existing.ServerPath = updatedConfig.ServerPath;
+                    existing.ClientPath = updatedConfig.ClientPath;
+                    existing.CacheDir = updatedConfig.CacheDir;
+                    existing.Address = updatedConfig.Address;
+                    existing.Username = updatedConfig.Username;
+                    existing.Token = updatedConfig.Token;
+                    existing.LogFile = updatedConfig.LogFile;
+                    existing.Verbose = updatedConfig.Verbose;
+                    existing.DxvkHud = updatedConfig.DxvkHud;
+                    existing.FpsLimit = updatedConfig.FpsLimit;
+                    existing.GraphicsApi = updatedConfig.GraphicsApi;
+                    existing.Fullscreen = updatedConfig.Fullscreen;
+                    existing.ImagePath = updatedConfig.ImagePath;
+                }
+                else
+                {
+                    // insert before "+"
+                    int insertIndex = Math.Max(0, _configList.Count - 1);
+                    _configList.Insert(insertIndex, editingConfig);
+                }
+
+                if (selected != null)
+                    ServerCarousel.SelectedItem = selected;
+
+                ShowToast("Settings saved successfully.", "Success", MessageBoxButton.OK, MessageBoxImage.Information);
+
+                if (button != null) button.IsEnabled = true;
+            });
+
         }
 
         private void ImagePathTextBox_Click(object sender, MouseButtonEventArgs e)
@@ -578,179 +716,74 @@ namespace fflauncher
 
         private async void FetchToken_Click(object sender, RoutedEventArgs e)
         {
-            if (currentConfig == null)
+            var cfg = editingConfig ?? ActiveConfig;
+            if (cfg == null) return;
+
+            if (string.IsNullOrEmpty(cfg.Address))
             {
-                MessageBox.Show("Select a server config first.", "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+                ShowToast("Endpoint address is required to fetch a token.", "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
 
-            if (string.IsNullOrEmpty(currentConfig.Address))
-            {
-                MessageBox.Show("Endpoint address is required to fetch a token.", "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
-                return;
-            }
-
-            var username = UsernameTextBox.Text?.Trim() ?? string.Empty;
+            var username = UsernameTextBox.Text.Trim();
             var password = PasswordBox.Password ?? string.Empty;
             if (string.IsNullOrEmpty(username) || string.IsNullOrEmpty(password))
             {
-                MessageBox.Show("Enter username and password to fetch a refresh token.", "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+                ShowToast("Enter username and password to fetch a refresh token.", "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
 
             try
             {
-                using var client = new EndpointClient(currentConfig.Address);
+                using var client = new EndpointClient(cfg.Address);
                 var refreshToken = await client.GetRefreshTokenAsync(username, password);
                 TokenPasswordBox.Password = refreshToken;
-                currentConfig.Username = username;
-                currentConfig.Token = refreshToken;
-                configs[currentConfig.Name] = currentConfig;
-                configManager.SaveConfigs(configs);
-                MessageBox.Show("Refresh token fetched and saved.", "Success", MessageBoxButton.OK, MessageBoxImage.Information);
+
+                cfg.Username = username;
+                cfg.Token = refreshToken;
+
+                configs[cfg.Id] = cfg;
+                await Task.Run(() => configManager.SaveConfigs(configs));
+                ShowToast("Refresh token fetched and saved.", "Success", MessageBoxButton.OK, MessageBoxImage.Information);
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Failed to fetch token: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                ShowToast($"Failed to fetch token: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 
         private async void Register_Click(object sender, RoutedEventArgs e)
         {
-            if (currentConfig == null)
+            var cfg = editingConfig ?? ActiveConfig;
+            if (cfg == null) return;
+
+            if (string.IsNullOrEmpty(cfg.Address))
             {
-                MessageBox.Show("Select a server config first.", "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+                ShowToast("Endpoint address is required to register.", "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
 
-            if (string.IsNullOrEmpty(currentConfig.Address))
-            {
-                MessageBox.Show("Endpoint address is required to register.", "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
-                return;
-            }
-
-            var username = UsernameTextBox.Text?.Trim() ?? string.Empty;
+            ReadOnlySpan<char> userSpan = UsernameTextBox.Text.AsSpan().Trim();
+            string username = userSpan.IsEmpty ? string.Empty : userSpan.ToString();
             var password = PasswordBox.Password ?? string.Empty;
             var email = EmailTextBox.Text?.Trim() ?? string.Empty;
             if (string.IsNullOrEmpty(username) || string.IsNullOrEmpty(password) || string.IsNullOrEmpty(email))
             {
-                MessageBox.Show("Enter username, password, and email to register.", "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+                ShowToast("Enter username, password, and email to register.", "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
 
             try
             {
-                using var client = new EndpointClient(currentConfig.Address);
+                using var client = new EndpointClient(cfg.Address);
                 var result = await client.RegisterUserAsync(username, password, email);
-                MessageBox.Show(result?.Resp ?? "Registration completed.", "Register", MessageBoxButton.OK, MessageBoxImage.Information);
+                ShowToast(string.IsNullOrWhiteSpace(result) ? "Registration completed." : result, "Register", MessageBoxButton.OK, MessageBoxImage.Information);
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Registration failed: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                ShowToast($"Registration failed: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
-
-        private void SettingsScroll_MouseDown(object sender, MouseButtonEventArgs e)
-        {
-            if (e.ChangedButton != MouseButton.Left) return;
-
-            var source = e.OriginalSource as DependencyObject;
-            if (source != null &&
-                (FindParent<System.Windows.Controls.TextBox>(source) != null ||
-                 FindParent<PasswordBox>(source) != null ||
-                 FindParent<System.Windows.Controls.ComboBox>(source) != null ||
-                 FindParent<System.Windows.Controls.ComboBoxItem>(source) != null ||
-                 FindParent<Button>(source) != null ||
-                 FindParent<System.Windows.Controls.Primitives.ScrollBar>(source) != null ||
-                 FindParent<System.Windows.Controls.CheckBox>(source) != null ||
-                 FindParent<System.Windows.Controls.RadioButton>(source) != null))
-            {
-                return;
-            }
-
-            _settingsDragging = true;
-            _settingsStartPoint = e.GetPosition(this);
-            _settingsStartOffset = ServerPanel.VerticalOffset;
-            ServerPanel.CaptureMouse();
-        }
-
-        private void SettingsScroll_MouseMove(object sender, MouseEventArgs e)
-        {
-            if (!_settingsDragging) return;
-            var current = e.GetPosition(this);
-            var delta = _settingsStartPoint.Y - current.Y;
-            ServerPanel.ScrollToVerticalOffset(_settingsStartOffset + delta);
-        }
-
-        private void SettingsScroll_MouseUp(object sender, MouseButtonEventArgs e)
-        {
-            _settingsDragging = false;
-            ServerPanel.ReleaseMouseCapture();
-        }
-
-        private void ThemeDropdown_SelectionChanged(object sender, SelectionChangedEventArgs e)
-        {
-            if (ThemeDropdown.SelectedItem is string theme && theme == "custom")
-            {
-                CustomThemePanel.Visibility = Visibility.Visible;
-            }
-            else
-            {
-                CustomThemePanel.Visibility = Visibility.Collapsed;
-            }
-        }
-
-        private void PreviewCustomTheme_Click(object sender, RoutedEventArgs e)
-        {
-            try
-            {
-                ApplyCustomTheme(System.Windows.Application.Current, _customThemeColors);
-                MessageBox.Show("Custom theme preview applied.", "Success", MessageBoxButton.OK, MessageBoxImage.Information);
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Error applying theme: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-            }
-        }
-
-        private void SaveCustomTheme_Click(object sender, RoutedEventArgs e)
-        {
-            try
-            {
-                configManager.CustomThemeColors = _customThemeColors;
-                configManager.GlobalTheme = "custom";
-                configManager.SaveConfigs(configs);
-                ApplyCustomTheme(System.Windows.Application.Current, _customThemeColors);
-                MessageBox.Show("Custom theme saved successfully.", "Success", MessageBoxButton.OK, MessageBoxImage.Information);
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Error saving custom theme: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-            }
-        }
-
-        private void PickColor(string colorKey, System.Windows.Shapes.Rectangle preview)
-        {
-            var colorDialog = new WForms.ColorDialog();
-            if (_customThemeColors.TryGetValue(colorKey, out var existingColor))
-            {
-                colorDialog.Color = System.Drawing.Color.FromArgb(existingColor.A, existingColor.R, existingColor.G, existingColor.B);
-            }
-
-            if (colorDialog.ShowDialog() == WForms.DialogResult.OK)
-            {
-                var selectedColor = System.Windows.Media.Color.FromArgb(colorDialog.Color.A, colorDialog.Color.R, colorDialog.Color.G, colorDialog.Color.B);
-                _customThemeColors[colorKey] = selectedColor;
-                preview.Fill = new SolidColorBrush(selectedColor);
-            }
-        }
-
-        private void PickBgColor_Click(object sender, RoutedEventArgs e) => PickColor("BgColor", CustomBgColorPreview);
-        private void PickFgColor_Click(object sender, RoutedEventArgs e) => PickColor("FgColor", CustomFgColorPreview);
-        private void PickAccentColor_Click(object sender, RoutedEventArgs e) => PickColor("AccentColor", CustomAccentColorPreview);
-        private void PickCardColor_Click(object sender, RoutedEventArgs e) => PickColor("CardColor", CustomCardColorPreview);
-        private void PickButtonColor_Click(object sender, RoutedEventArgs e) => PickColor("ButtonColor", CustomButtonColorPreview);
-        private void PickBorderColor_Click(object sender, RoutedEventArgs e) => PickColor("BorderColor", CustomBorderColorPreview);
 
         private void BackButton_Click(object sender, RoutedEventArgs e)
         {
@@ -773,40 +806,17 @@ namespace fflauncher
 
         private void ServerCarousel_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
+            if (!IsLoaded)
+                return;
+
             logger.Log("ServerCarousel_SelectionChanged fired");
             if (ServerCarousel.SelectedItem is not ServerConfig config)
                 return;
 
             logger.Log($"Selected config: {config.Name} (IsAddNew={config.IsAddNew})");
-            if (config.IsAddNew)
-            {
-                if (_isDragging || _maybeDragging)
-                {
-                    // Ignore add-new selection while dragging and restore previous selection.
-                    if (selectedConfig != null)
-                        ServerCarousel.SelectedItem = selectedConfig;
-                    else if (ServerCarousel.Items.Count > 1)
-                        ServerCarousel.SelectedIndex = 0;
-
-                    return;
-                }
-
-                // Prevent the add tile from acting like a real selection.
-                if (selectedConfig != null)
-                    ServerCarousel.SelectedItem = selectedConfig;
-                else if (ServerCarousel.Items.Count > 1)
-                    ServerCarousel.SelectedIndex = 0;
-
-                return;
-            }
 
             selectedConfig = config;
             DisplayConfigDetails(config);
-
-            Dispatcher.BeginInvoke(() =>
-            {
-                ServerCarousel.ScrollIntoView(config);
-            });
         }
         private ScrollViewer? FindScrollViewer(DependencyObject parent)
         {
@@ -831,8 +841,6 @@ namespace fflauncher
         private bool _configDragging;
         private Point _configStartPoint;
         private double _configStartOffset;
-        private const double DragSensitivity = 1.0;
-        private const double ConfigDragSensitivity = 1.0;
         private const double DragThreshold = 6.0;
 
         private void ConfigDrag_MouseDown(object sender, MouseButtonEventArgs e)
@@ -930,7 +938,7 @@ namespace fflauncher
 
         private double ApplyDrag(double delta)
         {
-            return delta * 1.0; // match config panel responsiveness
+            return delta * 3.0; // match config panel responsiveness
         }
 
         private void AddTile_Click(object sender, RoutedEventArgs e)
@@ -944,6 +952,7 @@ namespace fflauncher
         {
             var newConfig = new ServerConfig
             {
+                Id = Guid.NewGuid().ToString(), // ✅ ADD THIS
                 Name = "New Config",
                 Mode = "offline",
                 GraphicsApi = "vulkan",
@@ -951,6 +960,7 @@ namespace fflauncher
                 FpsLimit = "60"
             };
 
+            LoadEndpointPresets(newConfig);
             ShowSettingsView(newConfig);
         }
 
@@ -983,232 +993,24 @@ namespace fflauncher
         {
             if (selectedConfig == null)
             {
-                MessageBox.Show("Please select a server.", "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+                ShowToast("Please select a server.", "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
 
+            LaunchButton.IsEnabled = false;
+            ShowToast("Launching game...", "Info");
+
             try
             {
-                await LaunchGameAsync(selectedConfig);
+                await gameLauncher.LaunchAsync(selectedConfig);
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Error launching game: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                ShowToast($"Error launching game: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
-        }
-
-        private async Task LaunchGameAsync(ServerConfig config)
-        {
-            logger.Log($"Launching game for server: {config.Name}");
-            Process? serverProcess = null;
-
-            if (config.Mode.ToLower() == "offline" && !string.IsNullOrEmpty(config.ServerPath))
+            finally
             {
-                logger.Log("Starting server");
-                string serverDir = Path.GetDirectoryName(config.ServerPath) ?? string.Empty;
-                var serverInfo = new ProcessStartInfo
-                {
-                    FileName = config.ServerPath,
-                    WorkingDirectory = serverDir
-                };
-                serverProcess = Process.Start(serverInfo);
-            }
-
-            // Endpoint integration
-            string? overrideAddress = null;
-            string? overrideUsername = null;
-            string? overrideToken = null;
-
-            if (config.Mode == "endpoint")
-            {
-                if (string.IsNullOrEmpty(config.Address))
-                {
-                    throw new Exception("Endpoint address is empty for endpoint mode.");
-                }
-
-                using var ec = new EndpointClient(config.Address);
-                try
-                {
-                    var info = await ec.GetInfoAsync();
-                    if (!string.IsNullOrEmpty(info?.LoginAddress))
-                        overrideAddress = info.LoginAddress;
-
-                    if (!string.IsNullOrEmpty(config.Token))
-                    {
-                        // config.Token stores refresh token
-                        var session = await ec.GetSessionAsync(config.Token);
-                        if (session == null || string.IsNullOrEmpty(session.SessionToken))
-                            throw new Exception("Failed to get session from endpoint.");
-
-                        var cookie = await ec.GetCookieAsync(session.SessionToken);
-                        if (cookie == null || string.IsNullOrEmpty(cookie.Cookie))
-                            throw new Exception("Failed to obtain cookie from endpoint.");
-
-                        overrideUsername = cookie.Username;
-                        overrideToken = cookie.Cookie;
-                    }
-                    else
-                    {
-                        MessageBox.Show("No refresh token present for this endpoint. Please login in Settings.", "Login required", MessageBoxButton.OK, MessageBoxImage.Information);
-                        return;
-                    }
-                }
-                catch (Exception ex)
-                {
-                    logger.Log($"Endpoint error: {ex.Message}", "ERROR");
-                    throw;
-                }
-            }
-
-            // Build client args
-            string args = BuildClientArgs(config, overrideAddress, overrideUsername, overrideToken);
-            logger.Log($"Client args: {args}");
-
-            // Start client with proper working directory and environment
-            string clientDir = Path.GetDirectoryName(config.ClientPath) ?? string.Empty;
-
-            var clientInfo = new ProcessStartInfo
-            {
-                FileName = config.ClientPath,
-                Arguments = args,
-                WorkingDirectory = clientDir,
-                UseShellExecute = false,
-                CreateNoWindow = false
-            };
-
-            logger.Log($"Config name: {config.Name}");
-            logger.Log($"Config dir: {Path.GetDirectoryName(config.ClientPath)}");
-            logger.Log($"Client path: {config.ClientPath}");
-            logger.Log($"Cache dir: {config.CacheDir}");
-            logger.Log($"Client dir: {clientDir}");
-            logger.Log($"Full arguments string: {args}");
-            logger.Log($"Working directory: {clientInfo.WorkingDirectory}");
-
-            // Pass environment variables (UseShellExecute = true inherits parent env automatically)
-            SetClientEnvironment(clientInfo, config);
-
-            logger.Log("Starting client");
-            var clientProcess = Process.Start(clientInfo);
-            if (clientProcess == null)
-                throw new Exception("Failed to start client process.");
-
-            if (config.Fullscreen == true)
-            {
-                // Try to find the client's top-level window by process id and make it borderless fullscreen.
-                DispatcherTimer timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(200) };
-                timer.Tick += (s, e) =>
-                {
-                    try
-                    {
-                        if (TryMakeProcessWindowBorderless(clientProcess.Id))
-                        {
-                            timer.Stop();
-                        }
-                    }
-                    catch
-                    {
-                        // ignore and retry
-                    }
-                };
-                timer.Start();
-            }
-
-            // Wait for client to exit asynchronously
-            await Task.Run(() => clientProcess.WaitForExit());
-
-            if (serverProcess != null && !serverProcess.HasExited)
-            {
-                serverProcess.Kill();
-            }
-        }
-
-        private string BuildClientArgs(ServerConfig config, string? addressOverride = null, string? usernameOverride = null, string? tokenOverride = null)
-        {
-            string cache = NormalizePathOrUrl(Path.GetFullPath(config.CacheDir), false);
-
-            var address = string.IsNullOrEmpty(addressOverride) ? config.Address : addressOverride;
-            string args = $"-m \"{cache}/main.unity3d\" --asseturl \"{cache}/\" -a \"{address}\"";
-
-            var username = string.IsNullOrEmpty(usernameOverride) ? config.Username : usernameOverride;
-            var token = string.IsNullOrEmpty(tokenOverride) ? config.Token : tokenOverride;
-
-            if (!string.IsNullOrEmpty(username))
-                args += $" --username \"{username}\"";
-            if (!string.IsNullOrEmpty(token))
-                args += $" --token \"{token}\"";
-            if (!string.IsNullOrEmpty(config.LogFile))
-                args += $" -l \"{config.LogFile}\"";
-
-            if (config.GraphicsApi == "opengl")
-                args += " --force-opengl";
-            else if (config.GraphicsApi == "vulkan")
-                args += " --force-vulkan";
-
-            if (config.Fullscreen == true)
-            {
-                args += $" --width {SystemParameters.PrimaryScreenWidth} --height {SystemParameters.PrimaryScreenHeight}";
-            }
-
-            if (config.Verbose == true)
-                args += " -v";
-
-            return args;
-        }
-
-        public static string NormalizePathOrUrl(string? value, bool ensureTrailingSlash)
-        {
-            if (string.IsNullOrEmpty(value))
-                return string.Empty;
-
-
-            // If it's a rooted filesystem path, force file:///
-            if (Path.IsPathRooted(value))
-            {
-                var full = Path.GetFullPath(value);
-                if (ensureTrailingSlash && Directory.Exists(full) && !full.EndsWith(Path.DirectorySeparatorChar) &&
-                    !full.EndsWith(Path.AltDirectorySeparatorChar))
-                    full += Path.DirectorySeparatorChar;
-
-                var rooted = new Uri(full).AbsoluteUri.Replace("%20", " ");
-
-                return rooted;
-            }
-
-            if (Uri.TryCreate(value, UriKind.Absolute, out var uri))
-            {
-                if (uri.IsFile)
-                {
-                    var path = uri.LocalPath;
-                    if (ensureTrailingSlash && Directory.Exists(path) && !path.EndsWith(Path.DirectorySeparatorChar) &&
-                        !path.EndsWith(Path.AltDirectorySeparatorChar))
-                        path += Path.DirectorySeparatorChar;
-
-                    var fileUri = new Uri(path).AbsoluteUri;
-                    return fileUri;
-                }
-
-                return value;
-            }
-
-            value = Path.GetFullPath(value);
-
-            return value;
-        }
-
-        private void SetClientEnvironment(ProcessStartInfo info, ServerConfig config)
-        {
-            // When UseShellExecute = true, environment variables are inherited from parent process
-            // So we need to set them on the parent process
-            if (!string.IsNullOrEmpty(config.FpsLimit))
-            {
-                Environment.SetEnvironmentVariable("DXVK_FRAME_RATE", config.FpsLimit);
-                logger.Log($"Set DXVK_FRAME_RATE={config.FpsLimit}");
-            }
-
-            if (config.DxvkHud == true)
-            {
-                Environment.SetEnvironmentVariable("DXVK_HUD", "full");
-                logger.Log("Set DXVK_HUD=full");
+                LaunchButton.IsEnabled = true;
             }
         }
 
@@ -1216,28 +1018,26 @@ namespace fflauncher
         {
             if (configs == null)
             {
-                configs = EndpointPresets.ToDictionary(p => p.Name, p => new ServerConfig
-                {
-                    Name = p.Name,
-                    Mode = "endpoint",
-                    Address = p.Address
+                configs = EndpointPresets.ToDictionary(
+                    p => Guid.NewGuid().ToString(),
+                    p => new ServerConfig
+                    {
+                        Id = Guid.NewGuid().ToString(),
+                        Name = p.Name,
+                        Mode = "Online",
+                        Address = p.Address
                 });
             }
 
+            // Show settings view immediately, defer heavy loading if needed
             ShowSettingsView();
         }
+
         private void Window_MouseDown(object sender, MouseButtonEventArgs e)
         {
             if (e.ChangedButton == MouseButton.Left)
             {
-                if (e.ClickCount == 2)
-                {
-                    ToggleMaximize();
-                }
-                else
-                {
                     this.DragMove();
-                }
             }
         }
 
@@ -1266,72 +1066,25 @@ namespace fflauncher
 
         public void ApplyTheme(string theme)
         {
-            var app = System.Windows.Application.Current;
-            switch (theme?.ToLower())
+            var app = Application.Current;
+
+            if (!string.IsNullOrEmpty(theme) && ThemeMap.Contains(theme))
             {
-                case "light":
-                    ApplySet(app, "Light");
-                    break;
-                case "blue":
-                    ApplySet(app, "Blue");
-                    break;
-                case "neon":
-                    ApplySet(app, "Neon");
-                    break;
-                case "green":
-                    ApplySet(app, "Green");
-                    break;
-                case "forest":
-                    ApplySet(app, "Forest");
-                    break;
-                case "ocean":
-                    ApplySet(app, "Ocean");
-                    break;
-                case "purple":
-                    ApplySet(app, "Purple");
-                    break;
-                case "sunset":
-                    ApplySet(app, "Sunset");
-                    break;
-                case "gray":
-                    ApplySet(app, "Gray");
-                    break;
-                case "amoled":
-                    ApplySet(app, "Amoled");
-                    break;
-                case "custom":
-                    ApplyCustomTheme(app, configManager.CustomThemeColors);
-                    break;
-                default:
-                    app.Resources["BgColor"] = app.Resources["BgColorDark"];
-                    app.Resources["FgColor"] = app.Resources["FgColorDark"];
-                    app.Resources["AccentColor"] = app.Resources["AccentColorDark"];
-                    app.Resources["CardColor"] = app.Resources["CardColorDark"];
-                    app.Resources["ButtonBackground"] = app.Resources["ButtonColorDark"];
-                    app.Resources["ButtonForeground"] = app.Resources["FgColorDark"];
-                    app.Resources["BorderColor"] = app.Resources["BorderColorDark"];
-                    break;
+                ApplySet(app, theme);
+                return;
             }
+
+            // fallback (fusionfall)
+            app.Resources["BgColor"] = app.Resources["BgColorFusionFall"];
+            app.Resources["FgColor"] = app.Resources["FgColorFusionFall"];
+            app.Resources["AccentColor"] = app.Resources["AccentColorFusionFall"];
+            app.Resources["CardColor"] = app.Resources["CardColorFusionFall"];
+            app.Resources["ButtonBackground"] = app.Resources["ButtonColorFusionFall"];
+            app.Resources["ButtonForeground"] = app.Resources["FgColorFusionFall"];
+            app.Resources["BorderColor"] = app.Resources["BorderColorFusionFall"];
         }
 
-        private void ApplyCustomTheme(System.Windows.Application app, Dictionary<string, Color> colors)
-        {
-            if (colors.TryGetValue("BgColor", out var bgColor))
-                app.Resources["BgColor"] = new SolidColorBrush(bgColor);
-            if (colors.TryGetValue("FgColor", out var fgColor))
-                app.Resources["FgColor"] = new SolidColorBrush(fgColor);
-            if (colors.TryGetValue("AccentColor", out var accentColor))
-                app.Resources["AccentColor"] = new SolidColorBrush(accentColor);
-            if (colors.TryGetValue("CardColor", out var cardColor))
-                app.Resources["CardColor"] = new SolidColorBrush(cardColor);
-            if (colors.TryGetValue("ButtonColor", out var buttonColor))
-                app.Resources["ButtonBackground"] = new SolidColorBrush(buttonColor);
-            if (colors.TryGetValue("BorderColor", out var borderColor))
-                app.Resources["BorderColor"] = new SolidColorBrush(borderColor);
-            app.Resources["ButtonForeground"] = app.Resources["FgColor"];
-        }
-
-        private void ApplySet(System.Windows.Application app, string prefix)
+        private void ApplySet(Application app, string prefix)
         {
             app.Resources["BgColor"] = app.Resources[$"BgColor{prefix}"];
             app.Resources["FgColor"] = app.Resources[$"FgColor{prefix}"];
@@ -1344,10 +1097,16 @@ namespace fflauncher
 
         private void AddressComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            if (currentConfig != null)
+            var cfg = editingConfig ?? ActiveConfig;
+            if (cfg != null)
             {
-                currentConfig.Address = AddressComboBox.Text;
+                cfg.Address = AddressComboBox.Text;
             }
         }
+        private void CacheDirTextBox_DoubleClick(object sender, MouseButtonEventArgs e)
+        {
+            SelectFolderPath(CacheDirTextBox, "Select Cache Directory");
+        }
+
     }
 }

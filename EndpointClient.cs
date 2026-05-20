@@ -1,16 +1,21 @@
 using System;
+using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
+using System.Reflection.Metadata;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading.Tasks;
+using static System.Windows.Forms.VisualStyles.VisualStyleElement.StartPanel;
 
 namespace fflauncher
 {
     public class EndpointClient : IDisposable
     {
+        private static readonly HttpClient SharedHttpClient = CreateSharedClient();
         private readonly HttpClient _httpClient;
+        private readonly bool _ownsClient;
         private readonly string _baseHost; // host only or host/path (api.example.com/academy)
 
         private static readonly JsonSerializerOptions JsonOptions = new()
@@ -25,48 +30,70 @@ namespace fflauncher
                 throw new ArgumentNullException(nameof(host));
 
             _baseHost = NormalizeHost(host);
-            _httpClient = httpClient ?? new HttpClient() { Timeout = TimeSpan.FromSeconds(20) };
-            if (!_httpClient.DefaultRequestHeaders.UserAgent.TryParseAdd("fflauncher/1.0"))
+            if (httpClient is null)
+            {
+                _httpClient = SharedHttpClient;
+                _ownsClient = false;
+            }
+            else
+            {
+                _httpClient = httpClient;
+                _ownsClient = true;
+                if (!_httpClient.DefaultRequestHeaders.UserAgent.TryParseAdd("fflauncher/1.0"))
+                {
+                    // ignore
+                }
+            }
+        }
+
+        private static HttpClient CreateSharedClient()
+        {
+            var client = new HttpClient { Timeout = TimeSpan.FromSeconds(20) };
+            if (!client.DefaultRequestHeaders.UserAgent.TryParseAdd("fflauncher/1.0"))
             {
                 // ignore
             }
+            return client;
         }
 
         private static string NormalizeHost(string host)
         {
-            host = host.Trim();
-            if (host.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
-                host = host.Substring("https://".Length);
-            else if (host.StartsWith("http://", StringComparison.OrdinalIgnoreCase))
-                host = host.Substring("http://".Length);
+            ReadOnlySpan<char> span = host.AsSpan().Trim();
+            if (span.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+                span = span.Slice("https://".Length);
+            else if (span.StartsWith("http://", StringComparison.OrdinalIgnoreCase))
+                span = span.Slice("http://".Length);
 
-            host = host.TrimEnd('/');
-            return host;
+            span = span.TrimEnd('/');
+            return span.ToString();
         }
 
-        private string MakeUrl(string path)
+        private string MakeUrl(string path, bool offline = false)
         {
-            if (path.StartsWith("/"))
-                path = path.Substring(1);
-            return string.IsNullOrEmpty(path)
-                ? $"https://{_baseHost}/"
-                : $"https://{_baseHost}/{path}";
+            ReadOnlySpan<char> pathSpan = path.AsSpan();
+            if (pathSpan.StartsWith('/'))
+                pathSpan = pathSpan.Slice(1);
+            var httpPrefix = offline ? "http" : "https";
+
+            return pathSpan.IsEmpty
+                ? $"{httpPrefix}://{_baseHost}/"
+                : $"{httpPrefix}://{_baseHost}/{pathSpan.ToString()}";
         }
 
         public async Task<InfoResponse> GetInfoAsync()
         {
             var url = MakeUrl("");
-            var res = await _httpClient.GetAsync(url);
-            return await HandleResponse<InfoResponse>(res, url);
+            var res = await _httpClient.GetAsync(url).ConfigureAwait(false);
+            return await HandleResponse<InfoResponse>(res, url).ConfigureAwait(false);
         }
 
         public async Task<string> GetRefreshTokenAsync(string username, string password)
         {
             var url = MakeUrl("auth");
             var req = new { username, password };
-            var content = new StringContent(JsonSerializer.Serialize(req, JsonOptions), Encoding.UTF8, "application/json");
-            var res = await _httpClient.PostAsync(url, content);
-            var body = await res.Content.ReadAsStringAsync();
+            using var content = CreateJsonContent(req);
+            var res = await _httpClient.PostAsync(url, content).ConfigureAwait(false);
+            var body = await res.Content.ReadAsStringAsync().ConfigureAwait(false);
             if (!res.IsSuccessStatusCode)
             {
                 if (res.StatusCode == System.Net.HttpStatusCode.Unauthorized)
@@ -82,8 +109,8 @@ namespace fflauncher
             var url = MakeUrl("auth/session");
             using var req = new HttpRequestMessage(HttpMethod.Post, url);
             req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", refreshToken);
-            var res = await _httpClient.SendAsync(req);
-            return await HandleResponse<Session>(res, url);
+            var res = await _httpClient.SendAsync(req).ConfigureAwait(false);
+            return await HandleResponse<Session>(res, url).ConfigureAwait(false);
         }
 
         public async Task<CookieResponse> GetCookieAsync(string token)
@@ -91,65 +118,29 @@ namespace fflauncher
             var url = MakeUrl("cookie");
             using var req = new HttpRequestMessage(HttpMethod.Post, url);
             req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
-            var res = await _httpClient.SendAsync(req);
-            return await HandleResponse<CookieResponse>(res, url);
+            var res = await _httpClient.SendAsync(req).ConfigureAwait(false);
+            return await HandleResponse<CookieResponse>(res, url).ConfigureAwait(false);
         }
 
-        public async Task<AccountInfo> GetAccountInfoAsync(string token)
-        {
-            var url = MakeUrl("account");
-            using var req = new HttpRequestMessage(HttpMethod.Get, url);
-            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
-            var res = await _httpClient.SendAsync(req);
-            return await HandleResponse<AccountInfo>(res, url);
-        }
-
-        public async Task<RegisterResponse> RegisterUserAsync(string username, string password, string? email = null)
+        public async Task<string> RegisterUserAsync(string username, string password, string? email = null)
         {
             var url = MakeUrl("account/register");
             var req = new { username, password, email = string.IsNullOrEmpty(email) ? null : email };
-            var content = new StringContent(JsonSerializer.Serialize(req, JsonOptions), Encoding.UTF8, "application/json");
-            var res = await _httpClient.PostAsync(url, content);
-            return await HandleResponse<RegisterResponse>(res, url);
-        }
-
-        public async Task SendOtpAsync(string email)
-        {
-            var url = MakeUrl("account/otp");
-            var content = new StringContent(JsonSerializer.Serialize(new { email }, JsonOptions), Encoding.UTF8, "application/json");
-            var res = await _httpClient.PostAsync(url, content);
-            await EnsureSuccess(res, url);
-        }
-
-        public async Task UpdateEmailAsync(string token, string newEmail)
-        {
-            var url = MakeUrl("account/update/email");
-            using var req = new HttpRequestMessage(HttpMethod.Post, url)
+            using var content = CreateJsonContent(req);
+            var res = await _httpClient.PostAsync(url, content).ConfigureAwait(false);
+            var body = await res.Content.ReadAsStringAsync().ConfigureAwait(false);
+            if (!res.IsSuccessStatusCode)
             {
-                Content = new StringContent(JsonSerializer.Serialize(new { new_email = newEmail }, JsonOptions), Encoding.UTF8, "application/json")
-            };
-            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
-            var res = await _httpClient.SendAsync(req);
-            await EnsureSuccess(res, url);
-        }
-
-        public async Task UpdatePasswordAsync(string token, string newPassword)
-        {
-            var url = MakeUrl("account/update/password");
-            using var req = new HttpRequestMessage(HttpMethod.Post, url)
-            {
-                Content = new StringContent(JsonSerializer.Serialize(new { new_password = newPassword }, JsonOptions), Encoding.UTF8, "application/json")
-            };
-            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
-            var res = await _httpClient.SendAsync(req);
-            await EnsureSuccess(res, url);
+                throw new Exception($"API error {res.StatusCode}: {body} [{url}]");
+            }
+            return body.Trim();
         }
 
         public async Task<string?> GetCustomIconUrlAsync()
         {
             var url = MakeUrl("launcher/icon.ico");
             using var req = new HttpRequestMessage(HttpMethod.Head, url);
-            var res = await _httpClient.SendAsync(req);
+            var res = await _httpClient.SendAsync(req).ConfigureAwait(false);
             if (res.IsSuccessStatusCode)
                 return url;
             return null;
@@ -157,35 +148,41 @@ namespace fflauncher
 
         private static async Task<T> HandleResponse<T>(HttpResponseMessage res, string url)
         {
-            var body = await res.Content.ReadAsStringAsync();
             if (!res.IsSuccessStatusCode)
+            {
+                var body = await res.Content.ReadAsStringAsync().ConfigureAwait(false);
                 throw new Exception($"API error {res.StatusCode}: {body} [{url}]");
+            }
 
-            if (string.IsNullOrWhiteSpace(body))
+            await using var stream = await res.Content.ReadAsStreamAsync().ConfigureAwait(false);
+            if (stream == null || stream.CanRead == false)
                 return default!;
 
             try
             {
-                return JsonSerializer.Deserialize<T>(body, JsonOptions)!;
+                var result = await JsonSerializer.DeserializeAsync<T>(stream, JsonOptions).ConfigureAwait(false);
+                return result!;
             }
             catch (JsonException ex)
             {
-                throw new Exception($"Failed to deserialize response: {ex.Message}. Response content: {body}", ex);
+                throw new Exception($"Failed to deserialize response: {ex.Message}.", ex);
             }
         }
 
-        private static async Task EnsureSuccess(HttpResponseMessage res, string url)
+        private static ByteArrayContent CreateJsonContent<T>(T value)
         {
-            if (!res.IsSuccessStatusCode)
-            {
-                var body = await res.Content.ReadAsStringAsync();
-                throw new Exception($"API error {res.StatusCode}: {body} [{url}]");
-            }
+            var bytes = JsonSerializer.SerializeToUtf8Bytes(value, JsonOptions);
+            var content = new ByteArrayContent(bytes);
+            content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
+            return content;
         }
 
         public void Dispose()
         {
-            _httpClient.Dispose();
+            if (_ownsClient)
+            {
+                _httpClient.Dispose();
+            }
         }
 
         // Models
