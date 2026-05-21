@@ -1,6 +1,10 @@
-﻿using System;
+﻿using fflauncher.Models;
+using System;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
+using System.Net;
+using System.Net.Sockets;
 using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using System.Windows;
@@ -134,34 +138,82 @@ namespace fflauncher
             // Endpoint handling
             // =========================
             string? endpoint = null;
-            string? overrideUsername = null;
+            string? loginAddress = null;
+            bool customLoadingScreen = false;
+            string? overrideUsername = config.Username;
             string? overrideToken = null;
+            string? assetBase = null;
             if (string.Equals(config.Mode, "online", StringComparison.OrdinalIgnoreCase))
             {
-                using var ec = new EndpointClient(config.Address);
+                var address = config.Address?.Trim();
+                if (string.IsNullOrEmpty(address))
+                    throw new InvalidOperationException("Online mode requires an endpoint address.");
+
+                using var ec = new EndpointClient(address);
 
                 var info = await ec.GetInfoAsync();
-                endpoint = info?.LoginAddress;
+                endpoint = address;
+                loginAddress = info?.LoginAddress?.Trim();
+                customLoadingScreen = info?.CustomLoadingScreen == true;
 
-                // ✅ Version validation
-                //var supportedVersions = info.GameVersions ??
-                //                        (info.GameVersion != null ? new[] { info.GameVersion } : Array.Empty<string>());
-                //if (!supportedVersions.Contains(config.GameVersion))
-                //{
-                //    throw new Exception($"Version {config.GameVersion} not supported by server {config.Name}");
-                //}
+                // Determine asset base (version) automatically like OpenFusionLauncher
+                string? versionName = info?.GameVersion ?? (info?.GameVersions != null && info.GameVersions.Length > 0 ? info.GameVersions[0] : null);
+                if (!string.IsNullOrEmpty(versionName))
+                {
+                    var match = GameVersionInfo.DefaultVersions.FirstOrDefault(v => string.Equals(v.Uuid, versionName, StringComparison.OrdinalIgnoreCase));
+                    if (match != null)
+                        assetBase = match.AssetUrl;
+                }
 
-                var session = await ec.GetSessionAsync(config.Token);
-                var cookie = await ec.GetCookieAsync(session.SessionToken);
+                if (!string.IsNullOrEmpty(config.Password))
+                {
+                    // If the user provided a plain password, request a refresh token from the endpoint,
+                    // then establish a session and cookie like the OpenFusionLauncher flow.
+                    try
+                    {
+                        var refreshToken = await ec.GetRefreshTokenAsync(config.Username, config.Password);
+                        var session = await ec.GetSessionAsync(refreshToken);
+                        var cookie = await ec.GetCookieAsync(session.SessionToken);
 
-                overrideUsername = cookie.Username;
-                overrideToken = cookie.Cookie;
+                        overrideUsername = cookie.Username ?? config.Username;
+                        overrideToken = cookie.Cookie ?? refreshToken;
+                    }
+                    catch
+                    {
+                        // If refresh token flow fails, fall back to any provided stored token (if available)
+                        if (!string.IsNullOrEmpty(config.Token))
+                        {
+                            var session = await ec.GetSessionAsync(config.Token);
+                            var cookie = await ec.GetCookieAsync(session.SessionToken);
+
+                            overrideUsername = cookie.Username ?? config.Username;
+                            overrideToken = cookie.Cookie ?? config.Token;
+                        }
+                    }
+                }
+                else if (!string.IsNullOrEmpty(config.Token))
+                {
+                    var session = await ec.GetSessionAsync(config.Token);
+                    var cookie = await ec.GetCookieAsync(session.SessionToken);
+
+                    overrideUsername = cookie.Username ?? config.Username;
+                    overrideToken = cookie.Cookie ?? config.Token;
+                }
             }
 
             // =========================
-            // Build args
+            // Build args (pass asset base if determined)
             // =========================
-            string args = BuildArgs(config, endpoint, overrideUsername, overrideToken);
+            if (string.IsNullOrEmpty(assetBase))
+            {
+                // fallback to config.CacheDir or default built-in version
+                if (!string.IsNullOrEmpty(config.CacheDir))
+                    assetBase = config.CacheDir;
+                else
+                    assetBase = GameVersionInfo.DefaultVersions.FirstOrDefault()?.AssetUrl;
+            }
+
+            string args = BuildArgs(config, endpoint, loginAddress, overrideUsername, overrideToken, customLoadingScreen, assetBase);
             _logger.Log($"Built client arguments: {args}");
             string clientDir = Path.GetDirectoryName(config.ClientPath) ?? string.Empty;
 
@@ -180,19 +232,39 @@ namespace fflauncher
 
             if (config.Fullscreen)
             {
-                try
+                // Try to find the client's top-level window by process id and make it borderless fullscreen.
+                // NOTE: This uses P/Invoke which is very slow in Proton on Android, so limit retries
+                int attemptCount = 0;
+                const int MAX_ATTEMPTS = 15; // ~3 seconds with 200ms interval
+                DispatcherTimer timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(200) };
+                timer.Tick += (s, e) =>
                 {
-                    if (TryMakeProcessWindowBorderless(clientProcess.Id))
+                    attemptCount++;
+                    try
                     {
-                        _logger.Log("Successfully made client window borderless");
-                           
+                        if (TryMakeProcessWindowBorderless(clientProcess.Id))
+                        {
+                            _logger.Log("Successfully made client window borderless");
+                            timer.Stop();
+                        }
+                        else if (attemptCount >= MAX_ATTEMPTS)
+                        {
+                            _logger.Log($"Gave up making window borderless after {MAX_ATTEMPTS} attempts (Proton compatibility issue?)", "WARN");
+                            timer.Stop();
+                        }
                     }
-                }
-                catch (Exception ex)
-                {
-                    _logger.Log($"Error attempting to make window borderless: {ex.Message}", "WARN");
-                        
-                }
+                    catch (Exception ex)
+                    {
+                        _logger.Log($"Error attempting to make window borderless: {ex.Message}", "WARN");
+                        if (attemptCount >= MAX_ATTEMPTS)
+                        {
+                            _logger.Log($"Gave up making window borderless after {MAX_ATTEMPTS} attempts", "WARN");
+                            timer.Stop();
+                        }
+                    }
+                };
+
+                timer.Start();
 
             }
             else if (config.Fullscreen)
@@ -213,7 +285,7 @@ namespace fflauncher
         // Helpers
         // =========================
 
-        private string BuildArgs(ServerConfig config, string? endpoint = null, string? usernameOverride = null, string? tokenOverride = null)
+        private string BuildArgs(ServerConfig config, string? endpoint = null, string? loginAddress = null, string? usernameOverride = null, string? tokenOverride = null, bool customLoadingScreen = false, string? assetBase = null)
         {
             Span<char> buffer = stackalloc char[512];
             var sb = new SimpleValueStringBuilder(buffer);
@@ -225,45 +297,58 @@ namespace fflauncher
             }
             else
             {
-                cache = config.CacheDir;
+                // If an assetBase (asset URL) was provided use it; otherwise fall back to config.CacheDir
+                cache = !string.IsNullOrEmpty(assetBase) ? assetBase : config.CacheDir;
             }
-            ///"api.ffretrobution.net"
+            
+            // Main file and asset URL
             sb.Append("-m \"");
             sb.Append(cache);
             sb.Append("/main.unity3d\" --asseturl \"");
             sb.Append(cache);
-            sb.Append('/');
+            sb.Append("/\"");
 
+            // Login address/IP
+            sb.Append(" -a \"");
             if (string.Equals(config.Mode, "online", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrEmpty(endpoint))
             {
-                sb.Append("\" -e \"");
-                sb.Append(config.Address);
-
-                sb.Append("\" -a \"");
-                sb.Append(endpoint);
+                sb.Append(ResolveLoginAddress(loginAddress ?? endpoint));
             }
             else
             {
-                sb.Append("\" -a \"");
                 sb.Append(config.Address);
             }
-
             sb.Append('"');
 
+            // Endpoint (online only)
+            if (string.Equals(config.Mode, "online", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrEmpty(endpoint))
+            {
+                sb.Append(" -e \"");
+                sb.Append(endpoint);
+                sb.Append('"');
+            }
 
+            // Custom loading screen (online only)
+            if (customLoadingScreen)
+            {
+                sb.Append(" --loader-images");
+            }
+
+            // Username and token (for online mode, use token; for offline, can use password)
             string username = usernameOverride ?? config.Username;
             string token = tokenOverride ?? config.Token;
+            string password = config.Password;
 
             if (!string.IsNullOrEmpty(username))
             {
-                sb.Append(" --username \"");
+                sb.Append(" -u \"");
                 sb.Append(username);
                 sb.Append('"');
             }
 
             if (!string.IsNullOrEmpty(token))
             {
-                sb.Append(" --token \"");
+                sb.Append(" -t \"");
                 sb.Append(token);
                 sb.Append('"');
             }
@@ -275,6 +360,17 @@ namespace fflauncher
                 sb.Append('"');
             }
 
+            // Window size (if fullscreen)
+            if (config.Fullscreen == true)
+            {
+                var resolution = DisplaySettings.GetCurrentResolution();
+                sb.Append(" --width ");
+                AppendInt(ref sb, resolution.Width);
+                sb.Append(" --height ");
+                AppendInt(ref sb, resolution.Height);
+            }
+
+            // Graphics API
             switch (config.GraphicsApi?.ToLowerInvariant())
             {
                 case "opengl":
@@ -285,16 +381,7 @@ namespace fflauncher
                     break;
             }
 
-            if (config.Fullscreen == true)
-            {
-                var resolution = DisplaySettings.GetCurrentResolution();
-
-                sb.Append(" --width ");
-                AppendInt(ref sb, resolution.Width);
-                sb.Append(" --height ");
-                AppendInt(ref sb, resolution.Height);
-            }
-
+            // Verbose flag
             if (config.Verbose == true)
                 sb.Append(" -v");
 
@@ -361,11 +448,44 @@ namespace fflauncher
 
         private void SetEnvironment(ProcessStartInfo info, ServerConfig config)
         {
+            // FPS limit using the same environment variable as OpenFusionLauncher
             if (!string.IsNullOrEmpty(config.FpsLimit))
+            {
+                info.Environment["UNITY_FF_FPS_CAP"] = config.FpsLimit;
+                // Also keep DXVK_FRAME_RATE for compatibility with Proton
                 info.Environment["DXVK_FRAME_RATE"] = config.FpsLimit;
+            }
 
             if (config.DxvkHud)
-                info.Environment["DXVK_HUD"] = "full";
+                info.Environment["DXVK_HUD"] = "1";
+        }
+
+        private static string ResolveLoginAddress(string loginAddress)
+        {
+            if (string.IsNullOrWhiteSpace(loginAddress))
+                return string.Empty;
+
+            if (IPAddress.TryParse(loginAddress, out var ip))
+                return ip.ToString();
+
+            try
+            {
+                var addresses = Dns.GetHostAddresses(loginAddress);
+                foreach (var address in addresses)
+                {
+                    if (address.AddressFamily == AddressFamily.InterNetwork)
+                        return address.ToString();
+                }
+
+                if (addresses.Length > 0)
+                    return addresses[0].ToString();
+            }
+            catch
+            {
+                // fallback to original host if resolution fails
+            }
+
+            return loginAddress;
         }
         private bool TryMakeProcessWindowBorderless(int processId)
         {

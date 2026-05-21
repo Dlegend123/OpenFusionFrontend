@@ -34,7 +34,7 @@ namespace fflauncher
                 // Top center positioning
                 var workArea = SystemParameters.WorkArea;
                 Left = (workArea.Width - ActualWidth) / 2;
-                Top = 100;
+                Top = (workArea.Height - ActualHeight) / 12;
             };
         }
     }

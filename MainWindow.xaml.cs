@@ -1,14 +1,15 @@
+using System.Collections.Generic;
+using System.Linq;
+    
+using fflauncher.Models;
+using fflauncher.Services;
 using System.Collections.ObjectModel;
-using System.Diagnostics;
 using System.IO;
-using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
-using System.Windows.Media.Imaging;
 using System.Windows.Threading;
-using static System.Windows.Forms.VisualStyles.VisualStyleElement.StartPanel;
 using Application = System.Windows.Application;
 using Brush = System.Windows.Media.Brush;
 using Brushes = System.Windows.Media.Brushes;
@@ -18,6 +19,7 @@ using MouseEventArgs = System.Windows.Input.MouseEventArgs;
 using Orientation = System.Windows.Controls.Orientation;
 using Point = System.Windows.Point;
 using WForms = System.Windows.Forms;
+using Image = System.Windows.Controls.Image;
 
 namespace fflauncher
 {
@@ -25,28 +27,51 @@ namespace fflauncher
     /// Interaction logic for MainWindow.xaml
     /// </summary>
     public partial class MainWindow : Window
-    {   
-        private static readonly Brush ToastInfoBackground = Brushes.DimGray;
-        private static readonly Brush ToastSuccessBackground = CreateFrozenBrush(Color.FromRgb(56, 162, 116));
-        private static readonly Brush ToastWarningBackground = CreateFrozenBrush(Color.FromRgb(222, 176, 18));
-        private static readonly Brush ToastErrorBackground = CreateFrozenBrush(Color.FromRgb(215, 86, 58));
-        private static readonly Brush ToastForeground = Brushes.White;
-        private static SolidColorBrush CreateFrozenBrush(Color color)
+    {
+        private ServerConfig CloneConfig(ServerConfig src)
         {
-            var brush = new SolidColorBrush(color);
-            brush.Freeze();
-            return brush;
+            return new ServerConfig
+            {
+                Id = src.Id,
+                Name = src.Name,
+                Mode = src.Mode,
+                ServerPath = src.ServerPath,
+                ClientPath = src.ClientPath,
+                CacheDir = src.CacheDir,
+                Address = src.Address,
+                Username = src.Username,
+                Token = src.Token,
+                Password = src.Password,
+                LogFile = src.LogFile,
+                Verbose = src.Verbose,
+                DxvkHud = src.DxvkHud,
+                FpsLimit = src.FpsLimit,
+                GraphicsApi = src.GraphicsApi,
+                Fullscreen = src.Fullscreen,
+                ImagePath = src.ImagePath
+            };
         }
+        private List<GameVersionInfo> _availableVersions = new();
+        private ServerConfig? originalConfig;
+        
         private ConfigManager configManager;
         Dictionary<string, ServerConfig> configs; // key = Id
         private ServerConfig selectedConfig;
         private ServerConfig editingConfig;
         private ServerConfig? ActiveConfig =>
     ServerCarousel.SelectedItem is ServerConfig c && !c.IsAddNew ? c : null;
-        private readonly HashSet<string> _imageLoading = new(StringComparer.OrdinalIgnoreCase);
         private GameLauncher gameLauncher;
-        private readonly Dictionary<string, ImageSource> _imageCache = new();
+        
         private readonly ObservableCollection<ServerConfig> _configList = new();
+        private bool _isDragging = false;
+        private Point _dragStartPoint;
+        private double _startOffset;
+        private ScrollViewer? _scrollViewer;
+        private bool _maybeDragging = false;
+        private bool _configDragging;
+        private Point _configStartPoint;
+        private double _configStartOffset;
+        private const double DragThreshold = 6.0;
         private static readonly List<string> ThemeMap =
          new List<string>
             {
@@ -65,13 +90,6 @@ namespace fflauncher
             };
         private Logger logger;
 
-        private enum ToastType
-        {
-            Info,
-            Success,
-            Warning,
-            Error
-        }
 
         public static readonly List<ServerConfig> EndpointPresets = new()
         {
@@ -102,11 +120,18 @@ namespace fflauncher
                 ServerPath = string.Empty,
             }
         };
-
+        private ImageCacheService _imageService;
+        private ThemeService _themeService;
+        private ToastService _toastService;
+        private ConfigService _configService;
 
         public MainWindow(Logger logger)
         {
             InitializeComponent();
+            _imageService = new ImageCacheService();
+            _themeService = new ThemeService(ThemeMap);
+            _toastService = new ToastService();
+            _configService = new ConfigService();
             this.logger = logger;
 
             Closed += (_, _) => logger.Dispose();
@@ -118,7 +143,7 @@ namespace fflauncher
 
             try
             {
-                ApplyTheme(configManager.GlobalTheme);
+                _themeService.Apply(configManager.GlobalTheme);
 
                 var defaultCfg = configManager.GetDefaultConfig();
                 if (configManager.BypassGui && defaultCfg != null)
@@ -150,20 +175,29 @@ namespace fflauncher
         {
             Loaded -= MainWindow_Loaded;
             await InitializeAsync();
-            ServerDropdown.ItemsSource = _configList;
         }
 
         private async Task InitializeAsync()
         {
             try
             {
-                PopulateConfigsUI();
+                _configList.Clear();
 
+                // Load built-in default versions
+                _availableVersions.AddRange(GameVersionInfo.DefaultVersions);
+
+                // Versions are determined automatically at launch (no UI selection)
+                var list = _configService.BuildList(configs);
+                foreach (var item in list)
+                    _configList.Add(item);
+
+                ServerCarousel.ItemsSource = _configList;
+                ServerDropdown.ItemsSource = _configList;
                 // wait for UI to finish generating
                 await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.Loaded);
 
                 // 🔥 NEW: preload all carousel images after configs load
-                _ = PreloadAllCarouselImages();
+                _ = Task.Run(PreloadAllCarouselImages);
 
                 if (configs.Any())
                 {
@@ -188,7 +222,7 @@ namespace fflauncher
                 ShowInTaskbar = true;
             }
         }
-
+        
         private async Task PreloadAllCarouselImages()
         {
             try
@@ -203,7 +237,7 @@ namespace fflauncher
                     if (cfg == null || cfg.IsAddNew)
                         continue;
 
-                    tasks.Add(LoadImageAsync(cfg));
+                    tasks.Add(_imageService.LoadImageAsync(cfg, logger));
                 }
 
                 await Task.WhenAll(tasks);
@@ -211,102 +245,6 @@ namespace fflauncher
             catch (Exception ex)
             {
                 logger.Log($"PreloadAllCarouselImages failed: {ex.Message}", "WARN");
-            }
-        }
-
-        private void PopulateConfigsUI()
-        {
-            if (configs == null) return;
-
-            logger.Log($"Loaded {configs.Count} server configs");
-
-            _configList.Clear();
-
-            var seen = new HashSet<string>();
-
-            foreach (var cfg in configs.Values)
-            {
-                if (cfg == null || string.IsNullOrEmpty(cfg.Id))
-                    continue;
-
-                // ✅ prevent duplicates by Id
-                if (!seen.Add(cfg.Id))
-                    continue;
-
-                _configList.Add(cfg);
-            }
-
-            _configList.Add(new ServerConfig { Name = "+", IsAddNew = true });
-
-            ServerCarousel.ItemsSource = _configList;
-        }
-
-        private async Task LoadImageAsync(ServerConfig cfg)
-        {
-            if (cfg == null || cfg.IsAddNew)
-                return;
-
-            if (string.IsNullOrWhiteSpace(cfg.ImagePath))
-                return;
-
-            var imagePath = cfg.ImagePath.Trim();
-            if (imagePath.Length == 0)
-                return;
-
-            // SINGLE atomic check + add
-            if (!_imageLoading.Add(imagePath))
-                return;
-
-            try
-            {
-                if (_imageCache.TryGetValue(imagePath, out var cached))
-                {
-                    cfg.Image = cached;
-                    return;
-                }
-
-                ImageSource? bmp = null;
-
-                await Task.Run(() =>
-                {
-                    try
-                    {
-                        using var stream = new FileStream(imagePath, FileMode.Open, FileAccess.Read, FileShare.Read);
-                        var frame = BitmapFrame.Create(stream, BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.OnLoad);
-                        frame.Freeze();
-                        bmp = frame;
-                    }
-                    catch (Exception ex)
-                    {
-                        logger.Log($"Bitmap creation failed for {imagePath}: {ex.Message}", "WARN");
-                    }
-                });
-
-                if (bmp != null)
-                {
-                    if (Dispatcher.CheckAccess())
-                    {
-                        _imageCache[imagePath] = bmp;
-                        cfg.Image = bmp;
-                    }
-                    else
-                    {
-                        await Dispatcher.InvokeAsync(() =>
-                        {
-                            _imageCache[imagePath] = bmp;
-                            cfg.Image = bmp;
-                        });
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                logger.Log($"LoadImageAsync error: {ex.Message}", "ERROR");
-            }
-            finally
-            {
-                if (!string.IsNullOrEmpty(imagePath))
-                    _imageLoading.Remove(imagePath);
             }
         }
 
@@ -321,116 +259,55 @@ namespace fflauncher
             SettingsHeader.Visibility = Visibility.Visible;
             SaveButton.Visibility = Visibility.Visible;
 
-            editingConfig = editConfig ?? ActiveConfig;
-            // 🔥 ALWAYS prioritize carousel selection first
+            // ✅ FIX: always assign a config
+            originalConfig = editConfig?.IsAddNew == true ? null : editConfig ?? selectedConfig;
+            editingConfig = CloneConfig(editConfig ?? selectedConfig);
+
             ThemeDropdown.ItemsSource = ThemeMap;
             ThemeDropdown.SelectedItem = configManager.GlobalTheme ?? "fusionfall";
 
+            // ✅ SAFE now
             if (editingConfig.IsAddNew)
             {
-                ServerDropdown.SelectedItem = ServerDropdown.Items.Cast<ServerConfig>().FirstOrDefault(c => c.Name == "+");
+                ServerDropdown.SelectedItem =
+                    ServerDropdown.Items.Cast<ServerConfig>()
+                    .FirstOrDefault(c => c.IsAddNew);
             }
             else
             {
-                ServerDropdown.SelectedItem = editingConfig;
+                ServerDropdown.SelectedItem = originalConfig;
             }
-            
+
             LoadConfigToForm(editingConfig);
             LoadEndpointPresets(editingConfig);
+            FormStackPanel.DataContext = editingConfig;
             SectionChanged(SettingsButton, new RoutedEventArgs());
-
         }
 
-        private void ShowLauncherView()
+        private async Task ShowLauncherView()
         {
-            TitleTextBlock.Text = "FusionFall Frontend";
-            BackButton.Visibility = Visibility.Hidden;
-            SettingsButton.Visibility = Visibility.Visible;
-            LauncherHeader.Visibility = Visibility.Visible;
-            LauncherView.Visibility = Visibility.Visible;
-            SettingsView.Visibility = Visibility.Collapsed;
-            LaunchButton.Visibility = Visibility.Visible;
-            SettingsHeader.Visibility = Visibility.Collapsed;
-            SaveButton.Visibility = Visibility.Collapsed;
 
-            Dispatcher.InvokeAsync(() =>
+            try
             {
+                var f = MainViewsGrid.Height;
                 DisplayConfigDetails(selectedConfig);
-            }, DispatcherPriority.Background);
-
-        }
-
-        private void ShowToast(string message, string title = "", MessageBoxButton buttons = MessageBoxButton.OK, MessageBoxImage icon = MessageBoxImage.None)
-        {
-            ToastType type = ToastType.Info;
-            if (icon == MessageBoxImage.Error)
-                type = ToastType.Error;
-            else if (icon == MessageBoxImage.Warning)
-                type = ToastType.Warning;
-            else if (icon == MessageBoxImage.Information)
-                type = ToastType.Success;
-            else if (!string.IsNullOrEmpty(title))
-            {
-                ReadOnlySpan<char> t = title.AsSpan();
-
-                bool hasError = t.Contains("error", StringComparison.OrdinalIgnoreCase) ||
-                                t.Contains("failed", StringComparison.OrdinalIgnoreCase);
-
-                bool hasWarning = t.Contains("warning", StringComparison.OrdinalIgnoreCase);
-
-                bool hasSuccess = t.Contains("success", StringComparison.OrdinalIgnoreCase) ||
-                                  t.Contains("saved", StringComparison.OrdinalIgnoreCase) ||
-                                  t.Contains("completed", StringComparison.OrdinalIgnoreCase);
-
-                if (hasError)
-                    type = ToastType.Error;
-                else if (hasWarning)
-                    type = ToastType.Warning;
-                else if (hasSuccess)
-                    type = ToastType.Success;
             }
-
-            ShowToast(message, type, title);
-        }
-
-        private void ShowToast(string message, ToastType type, string title = "")
-        {
-            Brush background = ToastInfoBackground;
-
-            switch (type)
+            catch (Exception ex)
             {
-                case ToastType.Error:
-                    background = ToastErrorBackground;
-                    break;
-
-                case ToastType.Warning:
-                    background = ToastWarningBackground;
-                    break;
-
-                case ToastType.Success:
-                    background = ToastSuccessBackground;
-                    break;
-
-                default:
-                    background = TryFindResource("CardColor") as Brush ?? ToastInfoBackground;
-                    break;
+                logger.Log($"ShowLauncherView error: {ex.Message}", "ERROR");
             }
-
-            var toast = new ToastWindow(message, title, background, ToastForeground);
-            toast.Show();
-
-            var timer = new DispatcherTimer
+            finally
             {
-                Interval = TimeSpan.FromSeconds(3)
-            };
-
-            timer.Tick += (s, e) =>
-            {
-                timer.Stop();
-                toast.Close();
-            };
-
-            timer.Start();
+                BackButton.Visibility = Visibility.Collapsed;
+                SettingsButton.Visibility = Visibility.Visible;
+                LauncherHeader.Visibility = Visibility.Visible;
+                LauncherView.Visibility = Visibility.Visible;
+                SettingsView.Visibility = Visibility.Collapsed;
+                LaunchButton.Visibility = Visibility.Visible;
+                SettingsHeader.Visibility = Visibility.Collapsed;
+                SaveButton.Visibility = Visibility.Collapsed;
+                LauncherView.Visibility = Visibility.Visible;
+            }
         }
 
         private void LoadEndpointPresets(ServerConfig config)
@@ -462,46 +339,21 @@ namespace fflauncher
             catch { }
         }
 
-        public static void SmoothScrollTo(ScrollViewer sv, double to, int durationMs = 300)
-        {
-            double from = sv.HorizontalOffset;
-            double delta = to - from;
-            int frames = durationMs / 15; // ~60fps
-            int currentFrame = 0;
-
-            var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(15) };
-            timer.Tick += (s, e) =>
-            {
-                currentFrame++;
-                double progress = (double)currentFrame / frames;
-                // ease-out curve
-                double eased = 1 - Math.Pow(1 - progress, 3);
-                sv.ScrollToHorizontalOffset(from + delta * eased);
-
-                if (currentFrame >= frames)
-                    timer.Stop();
-            };
-            timer.Start();
-        }
-
 
         private void ServerDropdown_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             if (ServerDropdown.SelectedItem is ServerConfig config)
             {
-
-                if(config.Name == "+")
+                if (config.IsAddNew)
                 {
-                    
                     LoadEndpointPresets(config);
+                    LoadConfigToForm(config);
                 }
                 else
                 {
-                    if (editingConfig != null && config.Id != editingConfig.Id)
-                        return;
+                    editingConfig = CloneConfig(config);
+                    LoadConfigToForm(editingConfig);
                 }
-
-                LoadConfigToForm(config);
             }
         }
 
@@ -537,7 +389,9 @@ namespace fflauncher
             ClientPathTextBox.Text = config.ClientPath;
             CacheDirTextBox.Text = config.CacheDir;
             AddressComboBox.Text = config.Address;
+            EndpointTextBox.Text = config.Address;
             UsernameTextBox.Text = config.Username;
+            UserPasswordBox.Password = config.Password;
             TokenPasswordBox.Password = config.Token;
             LogFileTextBox.Text = config.LogFile;
             VerboseCheckBox.IsChecked = config.Verbose;
@@ -546,6 +400,31 @@ namespace fflauncher
             GraphicsApiTextBox.Text = config.GraphicsApi;
             FullscreenCheckBox.IsChecked = config.Fullscreen;
             ImagePathTextBox.Text = config.ImagePath;
+            UpdateModeFields();
+        }
+
+        private void UpdateModeFields()
+        {
+            bool isOnline = ModeOnlineRadio.IsChecked == true;
+            OnlineFieldsPanel.Visibility = isOnline ? Visibility.Visible : Visibility.Collapsed;
+            OfflineFieldsPanel.Visibility = isOnline ? Visibility.Collapsed : Visibility.Visible;
+        }
+
+        private void ModeRadio_Checked(object sender, RoutedEventArgs e)
+        {
+            if (editingConfig == null) return;
+            
+            editingConfig.Mode = ModeOnlineRadio.IsChecked == true ? "online" : "offline";
+            UpdateModeFields();
+        }
+
+        private string GetEffectiveAddress()
+        {
+            var address = AddressComboBox.Text?.Trim();
+            if (!string.IsNullOrEmpty(address))
+                return address;
+
+            return EndpointTextBox.Text?.Trim() ?? string.Empty;
         }
 
         private async void Save_Click(object sender, RoutedEventArgs e)
@@ -559,44 +438,56 @@ namespace fflauncher
 
             if (string.IsNullOrEmpty(name))
             {
-                ShowToast("The config name cannot be empty.", "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
-                return;
-            }
-
-            var updatedConfig = new ServerConfig
-            {
-                Id = editingConfig.Id,
-                Name = name,
-                Mode = ModeOnlineRadio.IsChecked == true ? "online" : "offline",
-                ServerPath = ServerPathTextBox.Text,
-                ClientPath = ClientPathTextBox.Text,
-                CacheDir = CacheDirTextBox.Text,
-                Address = AddressComboBox.Text,
-                Username = UsernameTextBox.Text,
-                Token = TokenPasswordBox.Password,
-                LogFile = LogFileTextBox.Text,
-                Verbose = VerboseCheckBox.IsChecked == true,
-                DxvkHud = DxvkHudCheckBox.IsChecked == true,
-                FpsLimit = FpsLimitTextBox.Text,
-                GraphicsApi = GraphicsApiTextBox.Text,
-                Fullscreen = FullscreenCheckBox.IsChecked == true,
-                ImagePath = ImagePathTextBox.Text,
-            };
-
-            // OPTIONAL: prevent duplicate names (UI rule, not storage rule)
-            if (configs.Values.Any(c =>
-                c.Id != updatedConfig.Id &&
-                string.Equals(c.Name, updatedConfig.Name, StringComparison.OrdinalIgnoreCase)))
-            {
-                ShowToast("A config with this name already exists.", "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+                _toastService.Show("The config name cannot be empty.", ToastService.ToastType.Warning, "Warning");
                 if (button != null) button.IsEnabled = true;
                 return;
             }
 
-            // 🔥 ONLY THIS matters now
-            configs[updatedConfig.Id] = updatedConfig;
+            var cfg = originalConfig ?? editingConfig;
 
-            editingConfig = configs[updatedConfig.Id]; // ✅ always use dictionary instance
+            // update IN PLACE (this is the key)
+            cfg.Name = name;
+            cfg.Mode = ModeOnlineRadio.IsChecked == true ? "online" : "offline";
+            cfg.ServerPath = ServerPathTextBox.Text;
+            cfg.ClientPath = ClientPathTextBox.Text;
+            cfg.CacheDir = CacheDirTextBox.Text;
+            cfg.Address = GetEffectiveAddress();
+            cfg.Username = UsernameTextBox.Text;
+            cfg.Password = UserPasswordBox.Password;
+            cfg.Token = TokenPasswordBox.Password;
+            cfg.LogFile = LogFileTextBox.Text;
+            cfg.Verbose = VerboseCheckBox.IsChecked == true;
+            cfg.DxvkHud = DxvkHudCheckBox.IsChecked == true;
+            cfg.FpsLimit = FpsLimitTextBox.Text;
+            cfg.GraphicsApi = GraphicsApiTextBox.Text;
+            cfg.Fullscreen = FullscreenCheckBox.IsChecked == true;
+
+            var newImagePath = ImagePathTextBox.Text;
+
+            // 🔥 smart image update
+            cfg.ImagePath = newImagePath;
+
+            // 🔥 remove cache for OLD path (correct)
+            await _imageService.LoadImageAsync(cfg, logger, force: true);
+
+            // OPTIONAL: prevent duplicate names (UI rule, not storage rule)
+            if (configs.Values.Any(c =>
+                c.Id != cfg.Id &&
+                string.Equals(c.Name, cfg.Name, StringComparison.OrdinalIgnoreCase)))
+            {
+                _toastService.Show("A config with this name already exists.", ToastService.ToastType.Warning, "Warning");
+                if (button != null) button.IsEnabled = true;
+                return;
+            }
+
+            if (!configs.ContainsKey(cfg.Id))
+            {
+                configs[cfg.Id] = cfg;
+
+                // insert before "+"
+                int insertIndex = Math.Max(0, _configList.Count - 1);
+                _configList.Insert(insertIndex, cfg);
+            }
 
             configManager.GlobalTheme = ThemeDropdown.SelectedItem as string ?? configManager.GlobalTheme;
 
@@ -606,49 +497,18 @@ namespace fflauncher
             await Dispatcher.InvokeAsync(() =>
             {
 
-                if (configs.TryGetValue(updatedConfig.Id, out var match))
-                {
-                    ServerCarousel.SelectedItem = match;
-                    ServerDropdown.SelectedItem = match;
-                    selectedConfig = match;
-                }
+                // already updated in-place → just reselect it
+                if (!ReferenceEquals(ServerCarousel.SelectedItem, cfg))
+                    ServerCarousel.SelectedItem = cfg;
 
-                LoadConfigToForm(selectedConfig);
-                ApplyTheme(configManager.GlobalTheme);
+                ServerDropdown.SelectedItem = cfg;
+                selectedConfig = cfg;
 
-                var selected = selectedConfig;
+                // reload form + theme
+                LoadConfigToForm(cfg);
+                _themeService.Apply(configManager.GlobalTheme);
 
-                // remove old instance
-                var existing = _configList.FirstOrDefault(c => c.Id == updatedConfig.Id);
-                if (existing != null)
-                {
-                    existing.Name = updatedConfig.Name;
-                    existing.Mode = updatedConfig.Mode;
-                    existing.ServerPath = updatedConfig.ServerPath;
-                    existing.ClientPath = updatedConfig.ClientPath;
-                    existing.CacheDir = updatedConfig.CacheDir;
-                    existing.Address = updatedConfig.Address;
-                    existing.Username = updatedConfig.Username;
-                    existing.Token = updatedConfig.Token;
-                    existing.LogFile = updatedConfig.LogFile;
-                    existing.Verbose = updatedConfig.Verbose;
-                    existing.DxvkHud = updatedConfig.DxvkHud;
-                    existing.FpsLimit = updatedConfig.FpsLimit;
-                    existing.GraphicsApi = updatedConfig.GraphicsApi;
-                    existing.Fullscreen = updatedConfig.Fullscreen;
-                    existing.ImagePath = updatedConfig.ImagePath;
-                }
-                else
-                {
-                    // insert before "+"
-                    int insertIndex = Math.Max(0, _configList.Count - 1);
-                    _configList.Insert(insertIndex, editingConfig);
-                }
-
-                if (selected != null)
-                    ServerCarousel.SelectedItem = selected;
-
-                ShowToast("Settings saved successfully.", "Success", MessageBoxButton.OK, MessageBoxImage.Information);
+                _toastService.Show("Settings saved successfully.", ToastService.ToastType.Success, "Success");
 
                 if (button != null) button.IsEnabled = true;
             });
@@ -677,11 +537,6 @@ namespace fflauncher
         private void ClientPathTextBox_Click(object sender, MouseButtonEventArgs e)
         {
             SelectFilePath(ClientPathTextBox, "Select Client Executable", "Executable files|*.exe|All files|*.*");
-        }
-
-        private void CacheDirTextBox_Click(object sender, MouseButtonEventArgs e)
-        {
-            SelectFolderPath(CacheDirTextBox, "Select Cache Directory");
         }
 
         private void SelectFilePath(System.Windows.Controls.TextBox target, string title, string filter)
@@ -719,9 +574,10 @@ namespace fflauncher
             var cfg = editingConfig ?? ActiveConfig;
             if (cfg == null) return;
 
+            cfg.Address = GetEffectiveAddress();
             if (string.IsNullOrEmpty(cfg.Address))
             {
-                ShowToast("Endpoint address is required to fetch a token.", "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+                _toastService.Show("Endpoint address is required to fetch a token.", ToastService.ToastType.Warning, "Warning");
                 return;
             }
 
@@ -729,7 +585,7 @@ namespace fflauncher
             var password = PasswordBox.Password ?? string.Empty;
             if (string.IsNullOrEmpty(username) || string.IsNullOrEmpty(password))
             {
-                ShowToast("Enter username and password to fetch a refresh token.", "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+                _toastService.Show("Enter username and password to fetch a refresh token.", ToastService.ToastType.Warning, "Warning");
                 return;
             }
 
@@ -744,11 +600,12 @@ namespace fflauncher
 
                 configs[cfg.Id] = cfg;
                 await Task.Run(() => configManager.SaveConfigs(configs));
-                ShowToast("Refresh token fetched and saved.", "Success", MessageBoxButton.OK, MessageBoxImage.Information);
+
+                _toastService.Show("Refresh token fetched and saved.", ToastService.ToastType.Success, "Success");
             }
             catch (Exception ex)
             {
-                ShowToast($"Failed to fetch token: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                _toastService.Show($"Failed to fetch token: {ex.Message}", ToastService.ToastType.Error, "Error");
             }
         }
 
@@ -757,9 +614,10 @@ namespace fflauncher
             var cfg = editingConfig ?? ActiveConfig;
             if (cfg == null) return;
 
+            cfg.Address = GetEffectiveAddress();
             if (string.IsNullOrEmpty(cfg.Address))
             {
-                ShowToast("Endpoint address is required to register.", "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+                _toastService.Show("Endpoint address is required to register.", ToastService.ToastType.Warning, "Warning");
                 return;
             }
 
@@ -769,7 +627,7 @@ namespace fflauncher
             var email = EmailTextBox.Text?.Trim() ?? string.Empty;
             if (string.IsNullOrEmpty(username) || string.IsNullOrEmpty(password) || string.IsNullOrEmpty(email))
             {
-                ShowToast("Enter username, password, and email to register.", "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+                _toastService.Show("Enter username, password, and email to register.", ToastService.ToastType.Warning, "Warning");
                 return;
             }
 
@@ -777,17 +635,17 @@ namespace fflauncher
             {
                 using var client = new EndpointClient(cfg.Address);
                 var result = await client.RegisterUserAsync(username, password, email);
-                ShowToast(string.IsNullOrWhiteSpace(result) ? "Registration completed." : result, "Register", MessageBoxButton.OK, MessageBoxImage.Information);
+                _toastService.Show(string.IsNullOrWhiteSpace(result) ? "Registration completed." : result, ToastService.ToastType.Success, "Register");
             }
             catch (Exception ex)
             {
-                ShowToast($"Registration failed: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                _toastService.Show($"Registration failed: {ex.Message}", ToastService.ToastType.Error, "Error");
             }
         }
 
-        private void BackButton_Click(object sender, RoutedEventArgs e)
+        private async void BackButton_Click(object sender, RoutedEventArgs e)
         {
-            ShowLauncherView();
+            await ShowLauncherView();
         }
 
         private void ServerCarousel_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
@@ -833,16 +691,7 @@ namespace fflauncher
 
             return null;
         }
-        private bool _isDragging = false;
-        private Point _dragStartPoint;
-        private double _startOffset;
-        private ScrollViewer? _scrollViewer;
-        private bool _maybeDragging = false;
-        private bool _configDragging;
-        private Point _configStartPoint;
-        private double _configStartOffset;
-        private const double DragThreshold = 6.0;
-
+        
         private void ConfigDrag_MouseDown(object sender, MouseButtonEventArgs e)
         {
             _configDragging = true;
@@ -969,23 +818,23 @@ namespace fflauncher
             ConfigDetailsPanel.Children.Clear();
 
             AddDetail("Mode", config.Mode);
-            AddDetail("Server Path", config.ServerPath);
-            AddDetail("Client Path", config.ClientPath);
-            AddDetail("Cache Dir", config.CacheDir);
-            AddDetail("Address", config.Address);
             AddDetail("Username", config.Username);
-            AddDetail("Log File", config.LogFile);
+            //AddDetail("Address", config.Address, string.Equals(config.Mode, "offline", StringComparison.OrdinalIgnoreCase));
+            //AddDetail("Server Path", config.ServerPath, string.Equals(config.Mode, "offline", StringComparison.OrdinalIgnoreCase));
+            //AddDetail("Client Path", config.ClientPath);
+            //AddDetail("Cache Dir", config.CacheDir, string.Equals(config.Mode, "offline", StringComparison.OrdinalIgnoreCase));
+            //AddDetail("Log File", config.LogFile);
             AddDetail("Verbose", config.Verbose.ToString());
             AddDetail("DXVK HUD", config.DxvkHud.ToString());
             AddDetail("FPS Limit", config.FpsLimit);
             AddDetail("Fullscreen", config.Fullscreen.ToString());
         }
 
-        private void AddDetail(string label, string value)
+        private void AddDetail(string label, string value, bool visible = true)
         {
-            var panel = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 5, 0, 0) };
-            panel.Children.Add(new TextBlock { Text = $"{label}: ", FontWeight = FontWeights.Bold, FontSize = 14 });
-            panel.Children.Add(new TextBlock { Text = value, FontSize = 14});
+            var panel = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 5, 0, 0), Visibility = visible ? Visibility.Visible : Visibility.Collapsed };
+            panel.Children.Add(new TextBlock { Text = $"{label}: ", FontSize = 14, FontWeight = FontWeights.Bold });
+            panel.Children.Add(new TextBlock { Text = value, FontSize = 14, VerticalAlignment = VerticalAlignment.Bottom });
             ConfigDetailsPanel.Children.Add(panel);
         }
 
@@ -993,12 +842,12 @@ namespace fflauncher
         {
             if (selectedConfig == null)
             {
-                ShowToast("Please select a server.", "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+                _toastService.Show("Please select a server.", ToastService.ToastType.Warning, "Warning");
                 return;
             }
 
             LaunchButton.IsEnabled = false;
-            ShowToast("Launching game...", "Info");
+            _toastService.Show("Launching game...", ToastService.ToastType.Info, "Info");
 
             try
             {
@@ -1006,7 +855,7 @@ namespace fflauncher
             }
             catch (Exception ex)
             {
-                ShowToast($"Error launching game: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                _toastService.Show($"Error launching game: {ex.Message}", ToastService.ToastType.Error, "Error");
             }
             finally
             {
@@ -1064,37 +913,6 @@ namespace fflauncher
             this.Close();
         }
 
-        public void ApplyTheme(string theme)
-        {
-            var app = Application.Current;
-
-            if (!string.IsNullOrEmpty(theme) && ThemeMap.Contains(theme))
-            {
-                ApplySet(app, theme);
-                return;
-            }
-
-            // fallback (fusionfall)
-            app.Resources["BgColor"] = app.Resources["BgColorFusionFall"];
-            app.Resources["FgColor"] = app.Resources["FgColorFusionFall"];
-            app.Resources["AccentColor"] = app.Resources["AccentColorFusionFall"];
-            app.Resources["CardColor"] = app.Resources["CardColorFusionFall"];
-            app.Resources["ButtonBackground"] = app.Resources["ButtonColorFusionFall"];
-            app.Resources["ButtonForeground"] = app.Resources["FgColorFusionFall"];
-            app.Resources["BorderColor"] = app.Resources["BorderColorFusionFall"];
-        }
-
-        private void ApplySet(Application app, string prefix)
-        {
-            app.Resources["BgColor"] = app.Resources[$"BgColor{prefix}"];
-            app.Resources["FgColor"] = app.Resources[$"FgColor{prefix}"];
-            app.Resources["AccentColor"] = app.Resources[$"AccentColor{prefix}"];
-            app.Resources["CardColor"] = app.Resources[$"CardColor{prefix}"];
-            app.Resources["ButtonBackground"] = app.Resources[$"ButtonColor{prefix}"];
-            app.Resources["ButtonForeground"] = app.Resources[$"FgColor{prefix}"];
-            app.Resources["BorderColor"] = app.Resources[$"BorderColor{prefix}"];
-        }
-
         private void AddressComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             var cfg = editingConfig ?? ActiveConfig;
@@ -1103,10 +921,12 @@ namespace fflauncher
                 cfg.Address = AddressComboBox.Text;
             }
         }
+
         private void CacheDirTextBox_DoubleClick(object sender, MouseButtonEventArgs e)
         {
             SelectFolderPath(CacheDirTextBox, "Select Cache Directory");
         }
 
     }
+
 }
