@@ -128,7 +128,14 @@ namespace fflauncher
                 var serverInfo = new ProcessStartInfo
                 {
                     FileName = config.ServerPath,
-                    WorkingDirectory = serverDir
+                    WorkingDirectory = serverDir,
+                    // Start the server process hidden (no visible console/window)
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    WindowStyle = ProcessWindowStyle.Hidden,
+                    // redirect output to avoid console popups and allow logging if desired
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true
                 };
 
                 serverProcess = Process.Start(serverInfo);
@@ -145,25 +152,78 @@ namespace fflauncher
             string? assetBase = null;
             if (string.Equals(config.Mode, "online", StringComparison.OrdinalIgnoreCase))
             {
-                var address = config.Address?.Trim();
-                if (string.IsNullOrEmpty(address))
+                endpoint = NormalizeEndpoint(config.Endpoint);
+                if (string.IsNullOrEmpty(endpoint))
                     throw new InvalidOperationException("Online mode requires an endpoint address.");
 
-                using var ec = new EndpointClient(address);
+                using var ec = new EndpointClient(endpoint);
 
-                var info = await ec.GetInfoAsync();
-                endpoint = address;
-                loginAddress = info?.LoginAddress?.Trim();
-                customLoadingScreen = info?.CustomLoadingScreen == true;
+                // 1. Fetch endpoint info (matching Rust: endpoint::get_info)
+                var info = await RetryAsync(() => ec.GetInfoAsync());
+                
+                if (info == null)
+                    throw new Exception("Failed to fetch endpoint info");
 
-                // Determine asset base (version) automatically like OpenFusionLauncher
-                string? versionName = info?.GameVersion ?? (info?.GameVersions != null && info.GameVersions.Length > 0 ? info.GameVersions[0] : null);
-                if (!string.IsNullOrEmpty(versionName))
+                // 2. Get supported versions
+                var supportedVersions = info.GetSupportedVersions();
+                if (supportedVersions.Count == 0)
+                    throw new Exception("Server returned no supported versions.");
+
+                _logger.Log($"Server supports versions: {string.Join(", ", supportedVersions)}");
+
+                // 3. Determine the version to use (prefer game_version, fall back to first in game_versions)
+                string? versionString = info.GameVersion;
+                if (string.IsNullOrEmpty(versionString) && supportedVersions.Count > 0)
                 {
-                    var match = GameVersionInfo.DefaultVersions.FirstOrDefault(v => string.Equals(v.Uuid, versionName, StringComparison.OrdinalIgnoreCase));
-                    if (match != null)
-                        assetBase = match.AssetUrl;
+                    versionString = supportedVersions[0];
                 }
+
+                if (string.IsNullOrEmpty(versionString))
+                    throw new Exception("Could not determine default version from endpoint.");
+
+                // 4. Validate that the version is supported
+                if (!supportedVersions.Contains(versionString))
+                    throw new Exception($"Version {versionString} not supported by server. Supported: {string.Join(", ", supportedVersions)}");
+
+                // 5. Parse version UUID and fetch version details
+                if (!Guid.TryParse(versionString, out Guid versionUuid))
+                    throw new Exception($"Invalid version UUID format: {versionString}");
+
+                _logger.Log($"Using version: {versionString}");
+
+                // Fetch the version from the endpoint (matching Rust: endpoint::fetch_version)
+                var version = await RetryAsync(() => ec.FetchVersion(versionUuid));
+                
+                if (version == null)
+                    throw new Exception($"Failed to fetch version details for {versionUuid}");
+
+                // 6. Determine asset base from the fetched version
+                // Use the version's URL/AssetUrl if available
+                if (!string.IsNullOrEmpty(version.Url))
+                {
+                    assetBase = version.Url;
+                    _logger.Log($"Using asset URL from version: {assetBase}");
+                }
+                else if (!string.IsNullOrEmpty(version.AssetUrl))
+                {
+                    assetBase = version.AssetUrl;
+                    _logger.Log($"Using asset URL from version: {assetBase}");
+                }
+
+                // Fallback to local cache if asset URL not provided
+                if (string.IsNullOrEmpty(assetBase) && !string.IsNullOrEmpty(config.CacheDir))
+                {
+                    assetBase = config.CacheDir;
+                    _logger.Log($"Using local cache directory: {assetBase}");
+                }
+
+                loginAddress = info.LoginAddress?.Trim();
+                if (string.IsNullOrEmpty(loginAddress))
+                {
+                    _logger.Log("Endpoint did not provide loginAddress, falling back to endpoint host", "WARN");
+                    loginAddress = endpoint;
+                }
+                customLoadingScreen = info.CustomLoadingScreen == true;
 
                 if (!string.IsNullOrEmpty(config.Password))
                 {
@@ -175,29 +235,16 @@ namespace fflauncher
                         var session = await ec.GetSessionAsync(refreshToken);
                         var cookie = await ec.GetCookieAsync(session.SessionToken);
 
+                        if (string.IsNullOrEmpty(cookie?.Cookie))
+                            throw new Exception("Endpoint did not return a valid session cookie.");
+
                         overrideUsername = cookie.Username ?? config.Username;
-                        overrideToken = cookie.Cookie ?? refreshToken;
+                        overrideToken = cookie.Cookie;
                     }
-                    catch
+                    catch(Exception ex)
                     {
-                        // If refresh token flow fails, fall back to any provided stored token (if available)
-                        if (!string.IsNullOrEmpty(config.Token))
-                        {
-                            var session = await ec.GetSessionAsync(config.Token);
-                            var cookie = await ec.GetCookieAsync(session.SessionToken);
-
-                            overrideUsername = cookie.Username ?? config.Username;
-                            overrideToken = cookie.Cookie ?? config.Token;
-                        }
+                        throw new Exception($"Error attempting to retrieve token from endpoint: {ex.Message}");
                     }
-                }
-                else if (!string.IsNullOrEmpty(config.Token))
-                {
-                    var session = await ec.GetSessionAsync(config.Token);
-                    var cookie = await ec.GetCookieAsync(session.SessionToken);
-
-                    overrideUsername = cookie.Username ?? config.Username;
-                    overrideToken = cookie.Cookie ?? config.Token;
                 }
             }
 
@@ -213,19 +260,46 @@ namespace fflauncher
                     assetBase = GameVersionInfo.DefaultVersions.FirstOrDefault()?.AssetUrl;
             }
 
-            string args = BuildArgs(config, endpoint, loginAddress, overrideUsername, overrideToken, customLoadingScreen, assetBase);
-            _logger.Log($"Built client arguments: {args}");
+            // Create cache directory if it's a local path (matching OpenFusionLauncher behavior)
+            if (!string.IsNullOrEmpty(assetBase) && (!Uri.TryCreate(assetBase, UriKind.Absolute, out var uri) || uri.IsFile))
+            {
+                var cachePath = assetBase;
+                if (!Path.IsPathRooted(cachePath))
+                {
+                    cachePath = Path.GetFullPath(cachePath);
+                }
+                try
+                {
+                    Directory.CreateDirectory(cachePath);
+                    _logger.Log($"Ensured cache directory exists: {cachePath}");
+                }
+                catch (Exception ex)
+                {
+                    _logger.Log($"Warning: Failed to create cache directory {cachePath}: {ex.Message}", "WARN");
+                }
+            }
+
+            var argsList = BuildArgs(config, endpoint, loginAddress, overrideUsername, overrideToken, customLoadingScreen, assetBase);
+
+            _logger.Log("Built client arguments:");
+            foreach (var a in argsList)
+                _logger.Log(a);
             string clientDir = Path.GetDirectoryName(config.ClientPath) ?? string.Empty;
 
             var clientInfo = new ProcessStartInfo
             {
                 FileName = config.ClientPath,
-                Arguments = args,
                 WorkingDirectory = clientDir,
                 UseShellExecute = false
             };
 
-            SetEnvironment(clientInfo, config);
+            // Split properly OR better: build as list from the start
+            foreach (var arg in argsList)
+            {
+                clientInfo.ArgumentList.Add(arg);
+            }
+
+            SetEnvironment(clientInfo, config, assetBase);
 
             _logger.Log("Starting client...");
             var clientProcess = Process.Start(clientInfo);
@@ -285,107 +359,116 @@ namespace fflauncher
         // Helpers
         // =========================
 
-        private string BuildArgs(ServerConfig config, string? endpoint = null, string? loginAddress = null, string? usernameOverride = null, string? tokenOverride = null, bool customLoadingScreen = false, string? assetBase = null)
+        private List<string> BuildArgs(
+            ServerConfig config,
+            string? endpoint = null,
+            string? loginAddress = null,
+            string? usernameOverride = null,
+            string? tokenOverride = null,
+            bool customLoadingScreen = false,
+            string? assetBase = null)
         {
-            Span<char> buffer = stackalloc char[512];
-            var sb = new SimpleValueStringBuilder(buffer);
+            var args = new List<string>();
 
-            string cache = "";
+            string cache;
+
             if (!string.Equals(config.Mode, "online", StringComparison.OrdinalIgnoreCase))
             {
                 cache = NormalizePathOrUrl(Path.GetFullPath(config.CacheDir), false);
             }
             else
             {
-                // If an assetBase (asset URL) was provided use it; otherwise fall back to config.CacheDir
                 cache = !string.IsNullOrEmpty(assetBase) ? assetBase : config.CacheDir;
             }
-            
-            // Main file and asset URL
-            sb.Append("-m \"");
-            sb.Append(cache);
-            sb.Append("/main.unity3d\" --asseturl \"");
-            sb.Append(cache);
-            sb.Append("/\"");
 
-            // Login address/IP
-            sb.Append(" -a \"");
-            if (string.Equals(config.Mode, "online", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrEmpty(endpoint))
-            {
-                sb.Append(ResolveLoginAddress(loginAddress ?? endpoint));
-            }
-            else
-            {
-                sb.Append(config.Address);
-            }
-            sb.Append('"');
+            string baseUrl = cache.TrimEnd('/');
 
-            // Endpoint (online only)
-            if (string.Equals(config.Mode, "online", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrEmpty(endpoint))
+            string mainUrl = $"{baseUrl}/main.unity3d";
+            string assetUrl = $"{baseUrl}/";
+
+            // 🔹 REQUIRED ORDER (matches Rust)
+            args.Add("-m");
+            args.Add(mainUrl);
+
+            args.Add("--asseturl");
+            args.Add(assetUrl);
+
+            // 🔹 ADDRESS (IMPORTANT FIX APPLIED)
+            string address =
+                string.Equals(config.Mode, "online", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrEmpty(endpoint)
+                ? ResolveServerAddress(loginAddress ?? endpoint)
+                : ResolveServerAddress(config.Address);
+
+            args.Add("-a");
+            args.Add(address);
+
+            // 🔹 ENDPOINT
+            if (!string.IsNullOrEmpty(endpoint))
             {
-                sb.Append(" -e \"");
-                sb.Append(endpoint);
-                sb.Append('"');
+                args.Add("-e");
+                args.Add(endpoint);
             }
 
-            // Custom loading screen (online only)
+            // 🔹 LOADER
             if (customLoadingScreen)
             {
-                sb.Append(" --loader-images");
+                args.Add("--loader-images");
             }
 
-            // Username and token (for online mode, use token; for offline, can use password)
+            // 🔹 USER / TOKEN
             string username = usernameOverride ?? config.Username;
-            string token = tokenOverride ?? config.Token;
-            string password = config.Password;
+            string token = tokenOverride ?? config.Password;
 
             if (!string.IsNullOrEmpty(username))
             {
-                sb.Append(" -u \"");
-                sb.Append(username);
-                sb.Append('"');
+                args.Add("-u");
+                args.Add(username);
             }
 
             if (!string.IsNullOrEmpty(token))
             {
-                sb.Append(" -t \"");
-                sb.Append(token);
-                sb.Append('"');
+                args.Add("-t");
+                args.Add(token);
             }
 
+            // 🔹 LOG FILE
             if (!string.IsNullOrEmpty(config.LogFile))
             {
-                sb.Append(" -l \"");
-                sb.Append(NormalizePathOrUrl(Path.GetFullPath(config.LogFile), false));
-                sb.Append('"');
+                args.Add("-l");
+                args.Add(NormalizePathOrUrl(Path.GetFullPath(config.LogFile), false));
             }
 
-            // Window size (if fullscreen)
+            // 🔹 FULLSCREEN SIZE
             if (config.Fullscreen == true)
             {
                 var resolution = DisplaySettings.GetCurrentResolution();
-                sb.Append(" --width ");
-                AppendInt(ref sb, resolution.Width);
-                sb.Append(" --height ");
-                AppendInt(ref sb, resolution.Height);
+
+                args.Add("--width");
+                args.Add(resolution.Width.ToString());
+
+                args.Add("--height");
+                args.Add(resolution.Height.ToString());
             }
 
-            // Graphics API
+            // 🔹 GRAPHICS API
             switch (config.GraphicsApi?.ToLowerInvariant())
             {
                 case "opengl":
-                    sb.Append(" --force-opengl");
+                    args.Add("--force-opengl");
                     break;
+
                 case "vulkan":
-                    sb.Append(" --force-vulkan");
+                    args.Add("--force-vulkan");
                     break;
             }
 
-            // Verbose flag
+            // 🔹 VERBOSE
             if (config.Verbose == true)
-                sb.Append(" -v");
+            {
+                args.Add("-v");
+            }
 
-            return sb.ToString();
+            return args;
         }
 
         private static void AppendInt(ref SimpleValueStringBuilder sb, int value)
@@ -446,47 +529,145 @@ namespace fflauncher
             return Path.GetFullPath(value);
         }
 
-        private void SetEnvironment(ProcessStartInfo info, ServerConfig config)
+        private async Task<T> RetryAsync<T>(Func<Task<T>> action, int attempts = 3, int delayMs = 500)
         {
-            // FPS limit using the same environment variable as OpenFusionLauncher
-            if (!string.IsNullOrEmpty(config.FpsLimit))
+            Exception? last = null;
+
+            for (int i = 0; i < attempts; i++)
             {
-                info.Environment["UNITY_FF_FPS_CAP"] = config.FpsLimit;
-                // Also keep DXVK_FRAME_RATE for compatibility with Proton
-                info.Environment["DXVK_FRAME_RATE"] = config.FpsLimit;
+                try
+                {
+                    return await action();
+                }
+                catch (Exception ex)
+                {
+                    last = ex;
+                    await Task.Delay(delayMs);
+                }
             }
 
+            throw new Exception($"Operation failed after {attempts} attempts: {last?.Message}", last);
+        }
+
+        private static string ResolveServerAddress(string addr)
+        {
+            if (string.IsNullOrWhiteSpace(addr))
+                return string.Empty;
+
+            string host = addr;
+            int port = 23000; // ✅ correct default
+
+            // Split host:port
+            if (addr.Contains(":"))
+            {
+                var parts = addr.Split(':');
+                host = parts[0];
+
+                if (parts.Length > 1 && int.TryParse(parts[1], out int parsed))
+                    port = parsed;
+            }
+
+            // If already an IP → return as-is
+            if (IPAddress.TryParse(host, out _))
+                return $"{host}:{port}";
+
+            try
+            {
+                var addresses = Dns.GetHostAddresses(host);
+
+                foreach (var a in addresses)
+                {
+                    if (a.AddressFamily == AddressFamily.InterNetwork)
+                        return $"{a}:{port}";
+                }
+
+                if (addresses.Length > 0)
+                    return $"{addresses[0]}:{port}";
+            }
+            catch
+            {
+                throw new Exception($"Failed to resolve game server address {addr}");
+            }
+
+            throw new Exception($"No IPv4 address found for {addr}");
+        }
+
+        private void SetEnvironment(ProcessStartInfo info, ServerConfig config, string? assetBase = null)
+        {
+            // Set the cache directory for the game (matching OpenFusionLauncher)
+            // This is required for the game to find its cached assets
+            //if (!string.IsNullOrEmpty(assetBase))
+            //{
+            //    // If assetBase is a local path, use it as UNITY_FF_CACHE_DIR
+            //    if (!Uri.TryCreate(assetBase, UriKind.Absolute, out var uri) || uri.IsFile)
+            //    {
+            //        var cachePath = assetBase;
+            //        if (!Path.IsPathRooted(cachePath))
+            //        {
+            //            cachePath = Path.GetFullPath(cachePath);
+            //        }
+            //        info.Environment["UNITY_FF_CACHE_DIR"] = cachePath;
+            //        _logger.Log($"Set UNITY_FF_CACHE_DIR: {cachePath}");
+            //    }
+            //    else if (uri.Scheme == "file")
+            //    {
+            //        info.Environment["UNITY_FF_CACHE_DIR"] = uri.LocalPath;
+            //        _logger.Log($"Set UNITY_FF_CACHE_DIR: {uri.LocalPath}");
+            //    }
+            //}
+            //else if (!string.IsNullOrEmpty(config.CacheDir))
+            //{
+            //    var cachePath = Path.GetFullPath(config.CacheDir);
+            //    info.Environment["UNITY_FF_CACHE_DIR"] = cachePath;
+            //    _logger.Log($"Set UNITY_FF_CACHE_DIR: {cachePath}");
+            //}
+
+            // FPS cap using UNITY_FF_FPS_CAP (matching OpenFusionLauncher)
+            if (!string.IsNullOrEmpty(config.FpsLimit))
+            {
+                if (int.TryParse(config.FpsLimit, out _))
+                {
+                    // If it's a number, use it as the cap
+                    info.Environment["UNITY_FF_FPS_CAP"] = config.FpsLimit;
+                    _logger.Log($"Set UNITY_FF_FPS_CAP: {config.FpsLimit}");
+                }
+                else if (config.FpsLimit.Equals("off", StringComparison.OrdinalIgnoreCase) || 
+                         config.FpsLimit.Equals("old", StringComparison.OrdinalIgnoreCase))
+                {
+                    // If it's "off" or "old", disable FPS cap
+                    info.Environment["UNITY_FF_FPS_CAP"] = "old";
+                    _logger.Log("Set UNITY_FF_FPS_CAP: old (disabled)");
+                }
+                else
+                {
+                    // Otherwise use the value as-is
+                    info.Environment["UNITY_FF_FPS_CAP"] = config.FpsLimit;
+                    _logger.Log($"Set UNITY_FF_FPS_CAP: {config.FpsLimit}");
+                }
+            }
+
+            // DXVK HUD (debug visualization)
             if (config.DxvkHud)
                 info.Environment["DXVK_HUD"] = "1";
         }
 
-        private static string ResolveLoginAddress(string loginAddress)
+        private static string NormalizeEndpoint(string endpoint)
         {
-            if (string.IsNullOrWhiteSpace(loginAddress))
+            if (string.IsNullOrWhiteSpace(endpoint))
                 return string.Empty;
 
-            if (IPAddress.TryParse(loginAddress, out var ip))
-                return ip.ToString();
+            endpoint = endpoint.Trim();
 
-            try
-            {
-                var addresses = Dns.GetHostAddresses(loginAddress);
-                foreach (var address in addresses)
-                {
-                    if (address.AddressFamily == AddressFamily.InterNetwork)
-                        return address.ToString();
-                }
+            if (!endpoint.StartsWith("http://") && !endpoint.StartsWith("https://"))
+                endpoint = "http://" + endpoint;
 
-                if (addresses.Length > 0)
-                    return addresses[0].ToString();
-            }
-            catch
-            {
-                // fallback to original host if resolution fails
-            }
+            // Remove trailing slash
+            if (endpoint.EndsWith("/"))
+                endpoint = endpoint.TrimEnd('/');
 
-            return loginAddress;
+            return endpoint;
         }
+
         private bool TryMakeProcessWindowBorderless(int processId)
         {
             try

@@ -1,10 +1,11 @@
-using System.Collections.Generic;
-using System.Linq;
     
 using fflauncher.Models;
 using fflauncher.Services;
+using fflauncher.UI;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
+using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -15,11 +16,11 @@ using Brush = System.Windows.Media.Brush;
 using Brushes = System.Windows.Media.Brushes;
 using Button = System.Windows.Controls.Button;
 using Color = System.Windows.Media.Color;
+using Image = System.Windows.Controls.Image;
 using MouseEventArgs = System.Windows.Input.MouseEventArgs;
 using Orientation = System.Windows.Controls.Orientation;
 using Point = System.Windows.Point;
 using WForms = System.Windows.Forms;
-using Image = System.Windows.Controls.Image;
 
 namespace fflauncher
 {
@@ -39,8 +40,8 @@ namespace fflauncher
                 ClientPath = src.ClientPath,
                 CacheDir = src.CacheDir,
                 Address = src.Address,
+                Endpoint = src.Endpoint,
                 Username = src.Username,
-                Token = src.Token,
                 Password = src.Password,
                 LogFile = src.LogFile,
                 Verbose = src.Verbose,
@@ -64,14 +65,11 @@ namespace fflauncher
         
         private readonly ObservableCollection<ServerConfig> _configList = new();
         private bool _isDragging = false;
-        private Point _dragStartPoint;
-        private double _startOffset;
         private ScrollViewer? _scrollViewer;
         private bool _maybeDragging = false;
         private bool _configDragging;
         private Point _configStartPoint;
         private double _configStartOffset;
-        private const double DragThreshold = 6.0;
         private static readonly List<string> ThemeMap =
          new List<string>
             {
@@ -124,6 +122,7 @@ namespace fflauncher
         private ThemeService _themeService;
         private ToastService _toastService;
         private ConfigService _configService;
+        private readonly CarouselDragHandler _carouselDrag = new();
 
         public MainWindow(Logger logger)
         {
@@ -327,14 +326,14 @@ namespace fflauncher
                         list.Add(addr);
                 }
 
-                var current = config?.Address;
+                var current = config?.Endpoint;
                 if (!string.IsNullOrEmpty(current) && addresses.Add(current))
                 {
                     list.Add(current);
                 }
 
-                AddressComboBox.ItemsSource = list;
-                AddressComboBox.SelectedItem = current;
+                EndpointComboBox.ItemsSource = list;
+                EndpointComboBox.SelectedItem = current;
             }
             catch { }
         }
@@ -344,16 +343,11 @@ namespace fflauncher
         {
             if (ServerDropdown.SelectedItem is ServerConfig config)
             {
-                if (config.IsAddNew)
-                {
-                    LoadEndpointPresets(config);
-                    LoadConfigToForm(config);
-                }
-                else
-                {
-                    editingConfig = CloneConfig(config);
-                    LoadConfigToForm(editingConfig);
-                }
+                // ensure originalConfig references the actual stored config (or null for add-new)
+                originalConfig = config.IsAddNew ? null : config;
+                editingConfig = CloneConfig(config);
+                LoadEndpointPresets(editingConfig);
+                LoadConfigToForm(editingConfig);
             }
         }
 
@@ -388,16 +382,15 @@ namespace fflauncher
             ServerPathTextBox.Text = config.ServerPath;
             ClientPathTextBox.Text = config.ClientPath;
             CacheDirTextBox.Text = config.CacheDir;
-            AddressComboBox.Text = config.Address;
-            EndpointTextBox.Text = config.Address;
+            AddressTextBox.Text = config.Address;
+            EndpointComboBox.Text = config.Endpoint;
             UsernameTextBox.Text = config.Username;
             UserPasswordBox.Password = config.Password;
-            TokenPasswordBox.Password = config.Token;
             LogFileTextBox.Text = config.LogFile;
             VerboseCheckBox.IsChecked = config.Verbose;
             DxvkHudCheckBox.IsChecked = config.DxvkHud;
             FpsLimitTextBox.Text = config.FpsLimit;
-            GraphicsApiTextBox.Text = config.GraphicsApi;
+            //GraphicsApiTextBox.Text = config.GraphicsApi;
             FullscreenCheckBox.IsChecked = config.Fullscreen;
             ImagePathTextBox.Text = config.ImagePath;
             UpdateModeFields();
@@ -420,11 +413,11 @@ namespace fflauncher
 
         private string GetEffectiveAddress()
         {
-            var address = AddressComboBox.Text?.Trim();
-            if (!string.IsNullOrEmpty(address))
-                return address;
+            var endpoint = EndpointComboBox.Text?.Trim();
+            if (!string.IsNullOrEmpty(endpoint))
+                return endpoint;
 
-            return EndpointTextBox.Text?.Trim() ?? string.Empty;
+            return AddressTextBox.Text?.Trim() ?? string.Empty;
         }
 
         private async void Save_Click(object sender, RoutedEventArgs e)
@@ -433,6 +426,13 @@ namespace fflauncher
 
             var button = sender as Button;
             if (button != null) button.IsEnabled = false;
+
+            // debug: log UI values being saved
+            try
+            {
+                logger.Log($"Save_Click UI values: Name='{NameTextBox.Text}', Address='{AddressTextBox.Text}', Endpoint='{EndpointComboBox.Text}', ClientPath='{ClientPathTextBox.Text}', ServerPath='{ServerPathTextBox.Text}'", "DEBUG");
+            }
+            catch { }
 
             var name = NameTextBox.Text?.Trim();
 
@@ -451,15 +451,15 @@ namespace fflauncher
             cfg.ServerPath = ServerPathTextBox.Text;
             cfg.ClientPath = ClientPathTextBox.Text;
             cfg.CacheDir = CacheDirTextBox.Text;
-            cfg.Address = GetEffectiveAddress();
+            cfg.Address = AddressTextBox.Text;
+            cfg.Endpoint = EndpointComboBox.Text;
             cfg.Username = UsernameTextBox.Text;
             cfg.Password = UserPasswordBox.Password;
-            cfg.Token = TokenPasswordBox.Password;
             cfg.LogFile = LogFileTextBox.Text;
             cfg.Verbose = VerboseCheckBox.IsChecked == true;
             cfg.DxvkHud = DxvkHudCheckBox.IsChecked == true;
             cfg.FpsLimit = FpsLimitTextBox.Text;
-            cfg.GraphicsApi = GraphicsApiTextBox.Text;
+            //cfg.GraphicsApi = GraphicsApiTextBox.Text;
             cfg.Fullscreen = FullscreenCheckBox.IsChecked == true;
 
             var newImagePath = ImagePathTextBox.Text;
@@ -494,6 +494,12 @@ namespace fflauncher
             // run IO OFF UI thread
             await Task.Run(() => configManager.SaveConfigs(configs));
 
+            try
+            {
+                logger.Log($"Saved config id={cfg.Id} name={cfg.Name} endpoint={cfg.Endpoint} address={cfg.Address}", "DEBUG");
+            }
+            catch { }
+
             await Dispatcher.InvokeAsync(() =>
             {
 
@@ -515,7 +521,7 @@ namespace fflauncher
 
         }
 
-        private void ImagePathTextBox_Click(object sender, MouseButtonEventArgs e)
+        private void ImagePathTextBox_DoubleClick(object sender, MouseButtonEventArgs e)
         {
             var dialog = new Microsoft.Win32.OpenFileDialog
             {
@@ -529,14 +535,19 @@ namespace fflauncher
             }
         }
 
-        private void ServerPathTextBox_Click(object sender, MouseButtonEventArgs e)
+        private void ServerPathTextBox_DoubleClick(object sender, MouseButtonEventArgs e)
         {
             SelectFilePath(ServerPathTextBox, "Select Server Executable", "Executable files|*.exe|All files|*.*");
         }
 
-        private void ClientPathTextBox_Click(object sender, MouseButtonEventArgs e)
+        private void ClientPathTextBox_DoubleClick(object sender, MouseButtonEventArgs e)
         {
             SelectFilePath(ClientPathTextBox, "Select Client Executable", "Executable files|*.exe|All files|*.*");
+        }
+
+        private void LogFileTextBox_DoubleClick(object sender, MouseButtonEventArgs e)
+        {
+            SelectFilePath(LogFileTextBox, "Select Log File", "Log files|*.log;*.txt|All files|*.*");
         }
 
         private void SelectFilePath(System.Windows.Controls.TextBox target, string title, string filter)
@@ -569,45 +580,7 @@ namespace fflauncher
             }
         }
 
-        private async void FetchToken_Click(object sender, RoutedEventArgs e)
-        {
-            var cfg = editingConfig ?? ActiveConfig;
-            if (cfg == null) return;
-
-            cfg.Address = GetEffectiveAddress();
-            if (string.IsNullOrEmpty(cfg.Address))
-            {
-                _toastService.Show("Endpoint address is required to fetch a token.", ToastService.ToastType.Warning, "Warning");
-                return;
-            }
-
-            var username = UsernameTextBox.Text.Trim();
-            var password = PasswordBox.Password ?? string.Empty;
-            if (string.IsNullOrEmpty(username) || string.IsNullOrEmpty(password))
-            {
-                _toastService.Show("Enter username and password to fetch a refresh token.", ToastService.ToastType.Warning, "Warning");
-                return;
-            }
-
-            try
-            {
-                using var client = new EndpointClient(cfg.Address);
-                var refreshToken = await client.GetRefreshTokenAsync(username, password);
-                TokenPasswordBox.Password = refreshToken;
-
-                cfg.Username = username;
-                cfg.Token = refreshToken;
-
-                configs[cfg.Id] = cfg;
-                await Task.Run(() => configManager.SaveConfigs(configs));
-
-                _toastService.Show("Refresh token fetched and saved.", ToastService.ToastType.Success, "Success");
-            }
-            catch (Exception ex)
-            {
-                _toastService.Show($"Failed to fetch token: {ex.Message}", ToastService.ToastType.Error, "Error");
-            }
-        }
+        // Fetch token removed: tokens are auto-refreshed when launching the game
 
         private async void Register_Click(object sender, RoutedEventArgs e)
         {
@@ -615,7 +588,8 @@ namespace fflauncher
             if (cfg == null) return;
 
             cfg.Address = GetEffectiveAddress();
-            if (string.IsNullOrEmpty(cfg.Address))
+            cfg.Endpoint = EndpointComboBox.Text;
+            if (string.IsNullOrEmpty(cfg.Endpoint))
             {
                 _toastService.Show("Endpoint address is required to register.", ToastService.ToastType.Warning, "Warning");
                 return;
@@ -633,8 +607,11 @@ namespace fflauncher
 
             try
             {
-                using var client = new EndpointClient(cfg.Address);
+                using var client = new EndpointClient(cfg.Endpoint);
                 var result = await client.RegisterUserAsync(username, password, email);
+
+                UserPasswordBox.Password = password;
+                Save_Click(sender, e); // save entered credentials
                 _toastService.Show(string.IsNullOrWhiteSpace(result) ? "Registration completed." : result, ToastService.ToastType.Success, "Register");
             }
             catch (Exception ex)
@@ -650,7 +627,6 @@ namespace fflauncher
 
         private void ServerCarousel_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
         {
-            logger.Log("ServerCarousel_MouseLeftButtonUp fired");
             if (ServerCarousel.SelectedItem is ServerConfig config && config.IsAddNew)
             {
                 // The add tile is handled by its button click. Ignore selection-based activation.
@@ -667,13 +643,15 @@ namespace fflauncher
             if (!IsLoaded)
                 return;
 
+            if (_carouselDrag.SuppressClick)
+                return;
+
             logger.Log("ServerCarousel_SelectionChanged fired");
             if (ServerCarousel.SelectedItem is not ServerConfig config)
                 return;
 
-            logger.Log($"Selected config: {config.Name} (IsAddNew={config.IsAddNew})");
-
             selectedConfig = config;
+
             DisplayConfigDetails(config);
         }
         private ScrollViewer? FindScrollViewer(DependencyObject parent)
@@ -719,7 +697,6 @@ namespace fflauncher
 
         private void Carousel_MouseDown(object sender, MouseButtonEventArgs e)
         {
-            logger.Log("Carousel_MouseDown fired");
             var source = e.OriginalSource as DependencyObject;
             if (source != null && FindParent<Button>(source) != null)
                 return;
@@ -727,10 +704,7 @@ namespace fflauncher
             _scrollViewer ??= FindScrollViewer(ServerCarousel);
             if (_scrollViewer == null) return;
 
-            // don't immediately capture mouse; start a tentative drag and only begin actual dragging
-            _maybeDragging = true;
-            _dragStartPoint = e.GetPosition(ServerCarousel);
-            _startOffset = _scrollViewer.HorizontalOffset;
+            _carouselDrag.MouseDown(_scrollViewer, e.GetPosition(ServerCarousel));
         }
 
         private static T? FindParent<T>(DependencyObject child) where T : DependencyObject
@@ -747,47 +721,24 @@ namespace fflauncher
 
         private void Carousel_MouseMove(object sender, MouseEventArgs e)
         {
-            if (!_maybeDragging && !_isDragging) return;
-
             if (_scrollViewer == null)
-            {
                 _scrollViewer = FindScrollViewer(ServerCarousel);
-                if (_scrollViewer == null) return;
-            }
 
-            Point current = e.GetPosition(ServerCarousel);
-            double deltaX = Math.Abs(current.X - _dragStartPoint.X);
+            if (_scrollViewer == null) return;
 
-            if (!_isDragging)
-            {
-                if (deltaX < DragThreshold)
-                    return;
-
-                // begin dragging
-                _isDragging = true;
-                ServerCarousel.CaptureMouse();
-            }
-
-            double delta = _dragStartPoint.X - current.X;
-            _scrollViewer.ScrollToHorizontalOffset(_startOffset + ApplyDrag(delta));
+            _carouselDrag.MouseMove(_scrollViewer, e.GetPosition(ServerCarousel));
         }
 
         private void Carousel_MouseUp(object sender, MouseButtonEventArgs e)
         {
-            logger.Log("Carousel_MouseUp fired");
-            if (_isDragging)
-            {
-                _isDragging = false;
-                ServerCarousel.ReleaseMouseCapture();
-            }
+            if (_scrollViewer == null)
+                return;
 
-            // reset tentative dragging state so clicks proceed normally
-            _maybeDragging = false;
-        }
+            bool wasDragging = _carouselDrag.MouseUp(_scrollViewer);
 
-        private double ApplyDrag(double delta)
-        {
-            return delta * 3.0; // match config panel responsiveness
+            // 🔥 IMPORTANT: prevent selection if it was a drag
+            if (wasDragging)
+                e.Handled = true;
         }
 
         private void AddTile_Click(object sender, RoutedEventArgs e)
@@ -833,7 +784,7 @@ namespace fflauncher
         private void AddDetail(string label, string value, bool visible = true)
         {
             var panel = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 5, 0, 0), Visibility = visible ? Visibility.Visible : Visibility.Collapsed };
-            panel.Children.Add(new TextBlock { Text = $"{label}: ", FontSize = 14, FontWeight = FontWeights.Bold });
+            panel.Children.Add(new TextBlock { Text = $"{label}: ", FontSize = 15, FontWeight = FontWeights.Bold });
             panel.Children.Add(new TextBlock { Text = value, FontSize = 14, VerticalAlignment = VerticalAlignment.Bottom });
             ConfigDetailsPanel.Children.Add(panel);
         }
@@ -911,15 +862,6 @@ namespace fflauncher
         private void Close_Click(object sender, RoutedEventArgs e)
         {
             this.Close();
-        }
-
-        private void AddressComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
-        {
-            var cfg = editingConfig ?? ActiveConfig;
-            if (cfg != null)
-            {
-                cfg.Address = AddressComboBox.Text;
-            }
         }
 
         private void CacheDirTextBox_DoubleClick(object sender, MouseButtonEventArgs e)

@@ -13,14 +13,13 @@
         AllowsTransparency="True"
         Visibility="Hidden"
         ShowInTaskbar="False"
-        Background="Transparent"
-        Title="OpenFusion Launcher">
+        Background="Transparent">
     <Window.Resources>
         <BooleanToVisibilityConverter x:Key="BoolToVisibilityConverter"/>
+        <helpers:EndpointAddressConverter x:Key="EndpointAddressConverter"/>
         <sys:Double x:Key="CardWidth">310</sys:Double>
-        <sys:Double x:Key="CardHeight">220</sys:Double>
-        <sys:Double x:Key="CardMargin">18</sys:Double>
-        <sys:Double x:Key="CarouselViewportWidth">1008</sys:Double>
+        <sys:Double x:Key="CardHeight">210</sys:Double>
+        <sys:Double x:Key="CarouselViewportWidth">1070</sys:Double>
 
         <Style x:Key="CarouselItemStyle" TargetType="ListBoxItem">
             <Setter Property="Padding" Value="0"/>
@@ -31,42 +30,44 @@
             <Setter Property="VerticalContentAlignment" Value="Stretch"/>
             <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
             <Setter Property="RenderTransformOrigin" Value="0.5,0.5"/>
-            <Setter Property="RenderTransform">
+            <Setter Property="LayoutTransform">
                 <Setter.Value>
                     <ScaleTransform ScaleX="1" ScaleY="1"/>
                 </Setter.Value>
             </Setter>
 
+
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="ListBoxItem">
                         <Border x:Name="Root"
-                                CornerRadius="12"
-                                Background="{TemplateBinding Background}"
-                                BorderBrush="{TemplateBinding BorderBrush}"
-                                BorderThickness="{TemplateBinding BorderThickness}"
-                                SnapsToDevicePixels="True"
-                                RenderTransformOrigin="0.5,0.5"
-                                HorizontalAlignment="Stretch"
-                                VerticalAlignment="Stretch">
-                            <Border.Effect>
-                                <DropShadowEffect Color="#001822"
-                                                  BlurRadius="18"
-                                                  ShadowDepth="0"
-                                                  Opacity="0.18"/>
-                            </Border.Effect>
+                        CornerRadius="12"
+                        Background="{TemplateBinding Background}"
+                        BorderBrush="{TemplateBinding BorderBrush}"
+                        BorderThickness="{TemplateBinding BorderThickness}"
+                        SnapsToDevicePixels="True"
+                        RenderTransformOrigin="0.5,0.5"
+                        HorizontalAlignment="Stretch"
+                        VerticalAlignment="Stretch">
                             <ContentPresenter HorizontalAlignment="Stretch" VerticalAlignment="Stretch"/>
                         </Border>
 
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsSelected" Value="True">
                                 <Setter TargetName="Root" Property="Background" Value="{DynamicResource CardColor}"/>
+                                <!-- Scale up when selected -->
+                                <Setter TargetName="Root" Property="LayoutTransform">
+                                    <Setter.Value>
+                                        <ScaleTransform ScaleX="1.2" ScaleY="1.2"/>
+                                    </Setter.Value>
+                                </Setter>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
         </Style>
+
     </Window.Resources>
 
     <Viewbox Stretch="Fill"
@@ -111,6 +112,7 @@
 
                          <TextBlock x:Name="TitleTextBlock"
                                Text="FusionFall Frontend"
+                                    FontWeight="Bold"
                                     FontSize="16"
                                Foreground="{DynamicResource FgColor}"
                                />  
@@ -121,7 +123,7 @@
                             Width="40"
                             Height="32"
                             Margin="0"
-                            FontFamily="Segoe UI Symbol"
+                            FontFamily="/fflauncher;component/Fonts/#Segoe UI Symbol"
                             FontSize="16"
                             Foreground="{DynamicResource FgColor}"
                              Visibility="Hidden"
@@ -131,9 +133,10 @@
                     <Button Grid.Column="2"
                             Content="—"
                             Width="40"
+                            IsEnabled="False"
                             Height="32"
                             Margin="0"
-                            FontFamily="Segoe UI Symbol"
+                            FontFamily="/fflauncher;component/Fonts/#Segoe UI Symbol"
                             FontSize="16"
                             Foreground="{DynamicResource FgColor}"
                             Click="Minimize_Click"
@@ -144,8 +147,9 @@
                             Width="40"
                             Height="32"
                             Margin="0"
+                            IsEnabled="False"
                             Name="MaximizeButton"
-                            FontFamily="Segoe UI Symbol"
+                            FontFamily="/fflauncher;component/Fonts/#Segoe UI Symbol"
                             FontSize="16"
                             Foreground="{DynamicResource FgColor}"
                             Click="Maximize_Click"
@@ -156,7 +160,7 @@
                             Width="40"
                             Height="32"
                             Margin="0"
-                            FontFamily="Segoe UI Symbol"
+                            FontFamily="/fflauncher;component/Fonts/#Segoe UI Symbol"
                             FontSize="16"
                             Foreground="{DynamicResource FgColor}"
                             Click="Close_Click"
@@ -205,18 +209,20 @@
                     Visibility="Collapsed"
                     Background="{DynamicResource CardColor}"
                     CornerRadius="12"
-                    Padding="16"
+                    Padding="12"
+                    MinHeight="68"
                     BorderBrush="{DynamicResource BorderColor}"
-                    BorderThickness="1" Margin="20,10,20,0">
+                    BorderThickness="1"
+                    Margin="20,10,20,10">
                 <TextBlock Text="Settings"
                            FontSize="18"
-                           
+                           VerticalAlignment="Center"
                            Foreground="{DynamicResource FgColor}"/>
             </Border>
 
             <!-- MAIN VIEWS -->
-            <Grid Grid.Row="2" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" x:Name="MainViewsGrid" Height="429.72">
-                <Grid x:Name="LauncherView" Visibility="Visible" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Height="429.72">
+            <Grid Grid.Row="2" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" x:Name="MainViewsGrid">
+                <Grid x:Name="LauncherView" Visibility="Visible" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Height="480">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="*"/>
                         <RowDefinition Height="Auto"/>
@@ -235,6 +241,7 @@
                             <ListBox x:Name="ServerCarousel"
                                  Margin="0"
                                  Background="Transparent"
+                                     ClipToBounds="False"
                                  BorderThickness="0"
                                  ScrollViewer.HorizontalScrollBarVisibility="Hidden"
                                  ScrollViewer.VerticalScrollBarVisibility="Disabled"
@@ -255,7 +262,18 @@
                             </ListBox.ItemsPanel>
                                 <ListBox.ItemTemplate>
                                     <DataTemplate>
-                                        <Border x:Name="NormalCardBorder"
+                                        <Grid>
+                                            <!-- Fake shadow -->
+                                            <!--<Border
+                                                x:Name="Shadow"
+                                                Margin="0,0,20,20"
+                                                CornerRadius="12"
+                                                Opacity="0"
+                                                IsHitTestVisible="False"
+                                                Height="198"
+                                                Width="{StaticResource CardWidth}"
+                                                Background="#40000000"/>-->
+                                            <Border x:Name="NormalCardBorder"
                             Width="{StaticResource CardWidth}"
                                     Height="{StaticResource CardHeight}"
                             CornerRadius="12"
@@ -263,82 +281,94 @@
                             BorderBrush="Transparent"
                             BorderThickness="1"
                             SnapsToDevicePixels="True">
-                                            <Grid HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
-                                                <!-- NORMAL CONFIG -->
-                                                <Grid x:Name="NormalCard">
-                                                    <!-- Clip children to inner content size (1px border on each side) -->
-                                                    <Grid.Clip>
-                                                        <RectangleGeometry Rect="0,0,308,218"
+                                                <Grid HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+                                                    <!-- NORMAL CONFIG -->
+                                                    <Grid x:Name="NormalCard">
+                                                        <!-- Clip children to inner content size (1px border on each side) -->
+                                                        <Grid.Clip>
+                                                            <RectangleGeometry Rect="0,0,308,208"
                                        RadiusX="12"
                                        RadiusY="12"/>
-                                                    </Grid.Clip>
-                                                    <Image x:Name="CarouselImage" Stretch="UniformToFill" SnapsToDevicePixels="True">
-                                                        <Image.Style>
-                                                            <Style TargetType="Image">
-                                                                <Setter Property="Source" Value="{Binding Image}"/>
-                                                                <Style.Triggers>
-                                                                    <DataTrigger Binding="{Binding IsAddNew}" Value="True">
-                                                                        <Setter Property="Source" Value="{x:Null}"/>
-                                                                    </DataTrigger>
-                                                                </Style.Triggers>
-                                                            </Style>
-                                                        </Image.Style>
-                                                    </Image>
+                                                        </Grid.Clip>
+                                                        <Image x:Name="CarouselImage" Stretch="UniformToFill" SnapsToDevicePixels="True" Opacity="0.8">
+                                                            <Image.Style>
+                                                                <Style TargetType="Image">
+                                                                    <Setter Property="Source" Value="{Binding Image}"/>
+                                                                    <Style.Triggers>
+                                                                        <DataTrigger Binding="{Binding IsAddNew}" Value="True">
+                                                                            <Setter Property="Source" Value="{x:Null}"/>
+                                                                        </DataTrigger>
+                                                                    </Style.Triggers>
+                                                                </Style>
+                                                            </Image.Style>
+                                                        </Image>
 
-                                                    <!-- Placeholder if no image -->
-                                                    <Border x:Name="Placeholder"
+                                                        <!-- Placeholder if no image -->
+                                                        <Border x:Name="Placeholder"
                             Background="#FF2B2F36"
                             Visibility="Collapsed">
-                                                        <TextBlock Text="No image"
+                                                            <TextBlock Text="No image"
                                    HorizontalAlignment="Center"
                                    VerticalAlignment="Center"
                                    Foreground="White"
                                    Opacity="0.7"
                                    FontSize="14"/>
-                                                    </Border>
+                                                        </Border>
 
-                                                    <!-- Overlay -->
-                                                    <Border Background="#66000000"/>
+                                                        <!-- Overlay -->
+                                                        <Border Background="#66000000"/>
 
-                                                    <!-- Text details -->
-                                                    <StackPanel Margin="14" VerticalAlignment="Bottom">
-                                                        <TextBlock Text="{Binding Name}"
+                                                        <!-- Text details -->
+                                                        <StackPanel Margin="14" VerticalAlignment="Bottom">
+                                                            <TextBlock Text="{Binding Name}"
                                    FontSize="16"
-                                                                   FontWeight="Bold"
+                                   FontWeight="Normal"
                                    Foreground="{DynamicResource FgColor}"/>
-                                                        <TextBlock Text="{Binding Address}"
-                                   FontSize="12"
-                                   Foreground="{DynamicResource AccentColor}"
-                                   Opacity="0.95"/>
-                                                    </StackPanel>
-                                                </Grid>
+                                                            <TextBlock FontSize="12"
+                                                               Foreground="{DynamicResource AccentColor}"
+                                                               Opacity="0.95">
 
-                                                <!-- ADD NEW TILE -->
-                                                <Border x:Name="AddTile"
+                                                                <TextBlock.Text>
+                                                                    <MultiBinding>
+                                                                        <MultiBinding.Converter>
+                                                                            <helpers:EndpointAddressConverter/>
+                                                                        </MultiBinding.Converter>
+
+                                                                        <Binding Path="Address"/>
+                                                                        <Binding Path="Endpoint"/>
+                                                                        <Binding Path="Mode"/>
+                                                                    </MultiBinding>
+                                                                </TextBlock.Text>
+                                                            </TextBlock>
+                                                        </StackPanel>
+                                                    </Grid>
+
+                                                    <!-- ADD NEW TILE -->
+                                                    <Border x:Name="AddTile"
                         Background="{DynamicResource CardColor}"
                         BorderBrush="{DynamicResource BorderColor}"
                         BorderThickness="1"
                         CornerRadius="12"
                         Visibility="Collapsed">
-                                                    <Button Click="AddTile_Click"
+                                                        <Button Click="AddTile_Click"
                             Background="Transparent"
                             BorderThickness="0"
                             Cursor="Hand"
                             Padding="0"
                             HorizontalAlignment="Stretch"
                             VerticalAlignment="Stretch">
-                                                        <TextBlock Text="+"
+                                                            <TextBlock Text="+"
                                    FontSize="42"
-                                                                   FontWeight="Bold"
+                                   FontWeight="Normal"
                                    Foreground="{DynamicResource AccentColor}"
                                    HorizontalAlignment="Center"
                                    VerticalAlignment="Center"/>
-                                                    </Button>
-                                                </Border>
-                                            </Grid>
-                                        </Border>
-
-                                        <!-- Triggers -->
+                                                        </Button>
+                                                    </Border>
+                                                </Grid>
+                                            </Border>
+                                        </Grid>
+                    <!-- Triggers -->
                                         <DataTemplate.Triggers>
                                             <DataTrigger Binding="{Binding Image}" Value="{x:Null}">
                                                 <Setter TargetName="Placeholder" Property="Visibility" Value="Visible"/>
@@ -349,6 +379,8 @@
                                             </DataTrigger>
                                             <DataTrigger Binding="{Binding RelativeSource={RelativeSource AncestorType=ListBoxItem}, Path=IsSelected}" Value="True">
                                                 <Setter TargetName="NormalCardBorder" Property="BorderBrush" Value="{DynamicResource AccentColor}"/>
+                                                <!-- show shadow -->
+                                                <!--<Setter TargetName="Shadow" Property="Opacity" Value="1"/>-->
                                             </DataTrigger>
                                         </DataTemplate.Triggers>
                                     </DataTemplate>
@@ -373,7 +405,7 @@
                 </Grid>
 
                     <!-- SETTINGS VIEW -->
-                    <Grid x:Name="SettingsView" Visibility="Collapsed" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Margin="20" MaxWidth="1046" MaxHeight="429.72">
+                    <Grid x:Name="SettingsView" Visibility="Collapsed" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Margin="20">
 
                         <Grid x:Name="SettingsColumnsGrid" HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
                             <Grid.ColumnDefinitions>
@@ -417,17 +449,17 @@
               x:Name="ServerAccountGrid"
               HorizontalAlignment="Stretch"
               VerticalAlignment="Stretch"
-              Visibility="{Binding IsChecked, ElementName=ServerSectionBtn, Converter={StaticResource BoolToVisibilityConverter}}">
+              Visibility="{Binding IsChecked, ElementName=ServerSectionBtn, Converter={StaticResource BoolToVisibilityConverter}}" Width="926">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto"/>
-                                    <!-- ServerPanel wider -->
+                                    <ColumnDefinition Width="*"/>
+                                    <!-- ServerPanel wider (flexible) -->
                                     <ColumnDefinition Width="Auto"/>
                                     <!-- AccountPanel narrower -->
                                 </Grid.ColumnDefinitions>
 
                                 <!-- SERVER CONFIG -->
 
-                                <StackPanel Grid.Column="0" Margin="0,0,20,0" Name="ServerConfigPanel" MaxWidth="550">
+                                <StackPanel Grid.Column="0" Margin="0,0,20,0" Name="ServerConfigPanel" MaxWidth="722">
 
                                     <!-- SERVER DROPDOWN (NEW POSITION) -->
                                     <Border Background="{DynamicResource CardColor}" x:Name="ServerDropdownBorder"
@@ -456,7 +488,7 @@
                                     </Border>
 
                                     <!-- SERVER PANEL -->
-                                    <Border Background="{DynamicResource CardColor}" Height="297"
+                                    <Border Background="{DynamicResource CardColor}" Height="378"
         x:Name="ServerPanel"
         CornerRadius="12"
         Padding="14"
@@ -515,10 +547,9 @@
                                                             <ColumnDefinition Width="*"/>
                                                         </Grid.ColumnDefinitions>
                                                         <TextBlock Text="Server Path:" Grid.Column="0" Foreground="{DynamicResource FgColor}" VerticalAlignment="Center"/>
-                                                        <TextBox x:Name="ServerPathTextBox" Grid.Column="1" IsReadOnly="True" Cursor="Hand"
-                 ToolTip="Click to select the server executable"
-                 PreviewMouseLeftButtonDown="ServerPathTextBox_Click"
-                 MouseLeftButtonUp="ServerPathTextBox_Click"/>
+                                                        <TextBox x:Name="ServerPathTextBox" Grid.Column="1" Cursor="IBeam"
+                                                            ToolTip="Double-click to select the server executable"
+                                                            MouseDoubleClick="ServerPathTextBox_DoubleClick"/>
                                                     </Grid>
 
                                                     <Grid Margin="10,0,0,10">
@@ -528,8 +559,8 @@
                                                         </Grid.ColumnDefinitions>
                                                         <TextBlock Text="Cache Dir:" Grid.Column="0" Foreground="{DynamicResource FgColor}" VerticalAlignment="Center"/>
                                                         <TextBox x:Name="CacheDirTextBox" Grid.Column="1" Cursor="IBeam"
-                 ToolTip="Enter or click to select cache directory"
-                 MouseDoubleClick="CacheDirTextBox_DoubleClick"/>
+                                                            ToolTip="Enter or click to select cache directory"
+                                                            MouseDoubleClick="CacheDirTextBox_DoubleClick"/>
                                                     </Grid>
 
                                                     <Grid Margin="10,0,0,10">
@@ -538,22 +569,18 @@
                                                             <ColumnDefinition Width="*"/>
                                                         </Grid.ColumnDefinitions>
                                                         <TextBlock Text="Address:" Grid.Column="0" Foreground="{DynamicResource FgColor}" VerticalAlignment="Center"/>
-                                                        <ComboBox x:Name="AddressComboBox" Grid.Column="1"
-                  IsEditable="True" IsReadOnly="False"
-                  StaysOpenOnEdit="True"
-                  SelectionChanged="AddressComboBox_SelectionChanged" Margin="20,0,0,0"/>
-                                                    </Grid>
-
-                                                    <Grid Margin="10,0,0,10">
-                                                        <Grid.ColumnDefinitions>
-                                                            <ColumnDefinition Width="120"/>
-                                                            <ColumnDefinition Width="*"/>
-                                                        </Grid.ColumnDefinitions>
-                                                        <TextBlock Text="Token:" Grid.Column="0" Foreground="{DynamicResource FgColor}" VerticalAlignment="Center"/>
-                                                        <PasswordBox x:Name="TokenPasswordBox" Grid.Column="1"/>
+                                                        <TextBox x:Name="AddressTextBox" Grid.Column="1" Margin="20,0,0,0"/>
                                                     </Grid>
                                                 </StackPanel>
 
+                                                <Grid Margin="10,0,0,10">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="120"/>
+                                                        <ColumnDefinition Width="*"/>
+                                                    </Grid.ColumnDefinitions>
+                                                    <TextBlock Text="Password:" Grid.Column="0" Foreground="{DynamicResource FgColor}" VerticalAlignment="Center"/>
+                                                    <PasswordBox x:Name="UserPasswordBox" Grid.Column="1"/>
+                                                </Grid>
 
                                                 <!-- ONLINE FIELDS -->
                                                 <StackPanel x:Name="OnlineFieldsPanel" Visibility="Collapsed">
@@ -564,16 +591,9 @@
                                                             <ColumnDefinition Width="*"/>
                                                         </Grid.ColumnDefinitions>
                                                         <TextBlock Text="Endpoint:" Grid.Column="0" Foreground="{DynamicResource FgColor}" VerticalAlignment="Center"/>
-                                                        <TextBox x:Name="EndpointTextBox" Grid.Column="1"/>
-                                                    </Grid>
-
-                                                    <Grid Margin="10,0,0,10">
-                                                        <Grid.ColumnDefinitions>
-                                                            <ColumnDefinition Width="120"/>
-                                                            <ColumnDefinition Width="*"/>
-                                                        </Grid.ColumnDefinitions>
-                                                        <TextBlock Text="Password:" Grid.Column="0" Foreground="{DynamicResource FgColor}" VerticalAlignment="Center"/>
-                                                        <PasswordBox x:Name="UserPasswordBox" Grid.Column="1"/>
+                                                        <ComboBox x:Name="EndpointComboBox" Grid.Column="1"
+                                                            IsEditable="True" IsReadOnly="False"
+                                                            StaysOpenOnEdit="True" Margin="10,0,0,0"/>
                                                     </Grid>
                                                 </StackPanel>
 
@@ -584,10 +604,9 @@
                                                         <ColumnDefinition Width="*"/>
                                                     </Grid.ColumnDefinitions>
                                                     <TextBlock Text="Client Path:" Grid.Column="0" Foreground="{DynamicResource FgColor}" VerticalAlignment="Center"/>
-                                                    <TextBox x:Name="ClientPathTextBox" Grid.Column="1" IsReadOnly="True" Cursor="Hand"
-                     ToolTip="Click to select the client executable"
-                     PreviewMouseLeftButtonDown="ClientPathTextBox_Click"
-                     MouseLeftButtonUp="ClientPathTextBox_Click"/>
+                                                    <TextBox x:Name="ClientPathTextBox" Grid.Column="1" Cursor="IBeam"
+                     ToolTip="Double-click to select the client executable"
+                     MouseDoubleClick="ClientPathTextBox_DoubleClick"/>
                                                 </Grid>
 
                                                 <!-- Log File -->
@@ -597,7 +616,9 @@
                                                         <ColumnDefinition Width="*"/>
                                                     </Grid.ColumnDefinitions>
                                                     <TextBlock Text="Log File:" Grid.Column="0" Foreground="{DynamicResource FgColor}" VerticalAlignment="Center"/>
-                                                    <TextBox x:Name="LogFileTextBox" Grid.Column="1"/>
+                                                    <TextBox x:Name="LogFileTextBox" Grid.Column="1" Cursor="IBeam"
+                     ToolTip="Double-click to select log file"
+                     MouseDoubleClick="LogFileTextBox_DoubleClick"/>
                                                 </Grid>
 
                                                 <!-- FPS Limit -->
@@ -617,21 +638,20 @@
                                                         <ColumnDefinition Width="*"/>
                                                     </Grid.ColumnDefinitions>
                                                     <TextBlock Text="Image Path:" Grid.Column="0" Foreground="{DynamicResource FgColor}" VerticalAlignment="Center"/>
-                                                    <TextBox x:Name="ImagePathTextBox" Grid.Column="1" IsReadOnly="True" Cursor="Hand"
-                     ToolTip="Click to select image path"
-                     PreviewMouseLeftButtonDown="ImagePathTextBox_Click"
-                     MouseLeftButtonUp="ImagePathTextBox_Click"/>
+                                                    <TextBox x:Name="ImagePathTextBox" Grid.Column="1" Cursor="IBeam"
+                     ToolTip="Double-click to select image path"
+                     MouseDoubleClick="ImagePathTextBox_DoubleClick"/>
                                                 </Grid>
 
                                                 <!-- Graphics API -->
-                                                <Grid Margin="10,0,0,10">
+                                                <!--<Grid Margin="10,0,0,10">
                                                     <Grid.ColumnDefinitions>
                                                         <ColumnDefinition Width="120"/>
                                                         <ColumnDefinition Width="*"/>
                                                     </Grid.ColumnDefinitions>
                                                     <TextBlock Text="Graphics API:" Grid.Column="0" Foreground="{DynamicResource FgColor}" VerticalAlignment="Center"/>
                                                     <TextBox x:Name="GraphicsApiTextBox" Grid.Column="1"/>
-                                                </Grid>
+                                                </Grid>-->
 
                                                 <!-- Fullscreen -->
                                                 <Grid Margin="10,0,0,10">
@@ -673,29 +693,24 @@
 
                                 <Border Background="{DynamicResource CardColor}" Grid.Column="1" x:Name="AccountPanel"
                         CornerRadius="12"
-                        Padding="14" MaxWidth="300"
+                        Padding="14" Width="300"
                         BorderBrush="{DynamicResource BorderColor}"
                         BorderThickness="1"
                         VerticalAlignment="Stretch"
                         HorizontalAlignment="Stretch">
                                     <StackPanel VerticalAlignment="Top" HorizontalAlignment="Stretch">
-                                        <TextBlock Text="Account" FontSize="16"  Margin="0,0,0,12" Foreground="{DynamicResource FgColor}"/>
+                                        <TextBlock Text="Account" FontSize="16" FontWeight="Bold" Margin="0,0,0,12" Foreground="{DynamicResource FgColor}"/>
                                         <TextBlock Foreground="{DynamicResource FgColor}" Text="Email"/>
                                         <TextBox x:Name="EmailTextBox" HorizontalAlignment="Stretch" Margin="0,0,0,20"/>
                                         <TextBlock Foreground="{DynamicResource FgColor}" Text="Password"/>
                                         <PasswordBox x:Name="PasswordBox" HorizontalAlignment="Stretch" Margin="0"/>
-                                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,10,0,0">
-                                            <Button x:Name="FetchTokenButton"
-                                    Content="Fetch Token"
-                                    MinWidth="120"
-                                    MinHeight="42"
-                                    Click="FetchToken_Click"/>
-                                            <Button x:Name="RegisterButton"
+
+                                        <Button x:Name="RegisterButton"
                                     Content="Register"
-                                    MinWidth="120"
+                                    MinWidth="110"
                                     Height="42"
+                                    Margin="0,20,0,0"
                                     Click="Register_Click"/>
-                                        </StackPanel>
                                     </StackPanel>
                                 </Border>
                             </Grid>

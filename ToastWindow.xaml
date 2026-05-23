@@ -10,18 +10,19 @@
         Topmost="True"
         ShowInTaskbar="False"
         ResizeMode="NoResize"
-        SizeToContent="WidthAndHeight">
-
+        SizeToContent="Manual">
     <Border x:Name="Root"
             CornerRadius="12"
             Padding="12"
-            Opacity="0.95">
+            BorderBrush="{DynamicResource BorderColor}"
+            BorderThickness="1">
 
         <StackPanel>
             <TextBlock x:Name="TitleText"
                        Margin="0,0,0,4"
+                       FontWeight="Bold"
                        FontSize="16"
-                       Visibility="Collapsed"/>
+                       Visibility="Collapsed" />
 
             <TextBlock x:Name="MessageText"
                        TextWrapping="Wrap"

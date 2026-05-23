@@ -57,9 +57,35 @@ namespace fflauncher.Services
             }
 
             var toast = new ToastWindow(message, title, background, ToastForeground);
+            var owner = Application.Current?.MainWindow;
+            if (owner != null)
+            {
+                try
+                {
+                    toast.Owner = owner;
+                }
+                catch { }
+
+                double targetWidth = owner.ActualWidth / 10.0;
+                double targetHeight = owner.ActualHeight / 20.0;
+                toast.InitializeSize(targetWidth, targetHeight);
+                toast.Left = owner.Left + (owner.ActualWidth - targetWidth) / 2.0;
+                toast.Top = owner.Top + (owner.ActualHeight - targetHeight) / 12.0;
+            }
+            else
+            {
+                var workArea = SystemParameters.WorkArea;
+                double targetWidth = workArea.Width / 10.0;
+                double targetHeight = workArea.Height / 20.0;
+                toast.InitializeSize(targetWidth, targetHeight);
+                toast.Left = (workArea.Width - targetWidth) / 2.0;
+                toast.Top = workArea.Height / 12.0;
+            }
+
             toast.Show();
 
             var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
+
             timer.Tick += (s, e) =>
             {
                 timer.Stop();

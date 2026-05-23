@@ -170,6 +170,9 @@ namespace fflauncher.Models
             };
 
             File.WriteAllText(configPath, JsonSerializer.Serialize(root, JsonOptions));
+            // keep in-memory representation in sync with on-disk file
+            this.configFile.Global = root.global;
+            this.configFile.Configs = configList;
         }
     }
 }

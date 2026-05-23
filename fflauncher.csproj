@@ -7,16 +7,18 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
     <UseWindowsForms>true</UseWindowsForms>
-    <ApplicationIcon>OpenFusion.ico</ApplicationIcon>
+    <ApplicationIcon>Fusion.ico</ApplicationIcon>
   </PropertyGroup>
 
   <ItemGroup>
-    <None Remove="fusion.png" />
+    <Content Include="Fusion.ico" />
   </ItemGroup>
-
+	
   <ItemGroup>
-    <Resource Include="fusion.png" />
-    <Resource Include="OpenFusion.ico" />
+    <Resource Include="Fusion.ico" />
+    <!-- Embedded Fonts for Wine/Proton Compatibility -->
+    <Resource Include="Fonts/segoeui.ttf" />
+    <Resource Include="Fonts/seguisym.ttf" />
   </ItemGroup>
 
 </Project>

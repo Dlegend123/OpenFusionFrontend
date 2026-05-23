@@ -28,14 +28,15 @@ namespace fflauncher
             }
 
             Root.Background = background;
+        }
 
-            Loaded += (_, __) =>
-            {
-                // Top center positioning
-                var workArea = SystemParameters.WorkArea;
-                Left = (workArea.Width - ActualWidth) / 2;
-                Top = (workArea.Height - ActualHeight) / 12;
-            };
+        public void InitializeSize(double targetWidth, double targetHeight)
+        {
+            Width = targetWidth;
+            Height = targetHeight;
+            Root.Width = targetWidth;
+            Root.Height = targetHeight;
+            MessageText.MaxWidth = targetWidth - Root.Padding.Left - Root.Padding.Right;
         }
     }
 }

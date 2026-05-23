@@ -15,8 +15,20 @@ namespace fflauncher.Models
         [JsonPropertyName("id")]
         public string Id { get; set; } = Guid.NewGuid().ToString();
 
+        private string _name;
         [JsonPropertyName("name")]
-        public string Name { get; set; }
+        public string Name
+        {
+            get => _name;
+            set
+            {
+                if (_name != value)
+                {
+                    _name = value;
+                    OnPropertyChanged(nameof(Name));
+                }
+            }
+        }
 
         private string _mode;
         [JsonPropertyName("mode")]
@@ -42,14 +54,37 @@ namespace fflauncher.Models
         [JsonPropertyName("cache_dir")]
         public string CacheDir { get; set; }
 
+        private string _address;
         [JsonPropertyName("address")]
-        public string Address { get; set; }
+        public string Address
+        {
+            get => _address;
+            set
+            {
+                if (_address != value)
+                {
+                    _address = value;
+                    OnPropertyChanged(nameof(Address));
+                }
+            }
+        }
+        private string _endpoint;
+        [JsonPropertyName("endpoint")]
+        public string Endpoint
+        {
+            get => _endpoint;
+            set
+            {
+                if (_endpoint != value)
+                {
+                    _endpoint = value;
+                    OnPropertyChanged(nameof(Endpoint));
+                }
+            }
+        }
 
         [JsonPropertyName("username")]
         public string Username { get; set; }
-
-        [JsonPropertyName("token")]
-        public string Token { get; set; }
 
         [JsonPropertyName("password")]
         public string Password { get; set; }
