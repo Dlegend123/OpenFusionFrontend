@@ -1,9 +1,6 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Text;
-using Application = System.Windows.Application;
+﻿using Application = System.Windows.Application;
 
-namespace fflauncher.Services
+namespace fffrontend.Services
 {
     public class ThemeService
     {

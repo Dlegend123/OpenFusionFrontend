@@ -1,10 +1,7 @@
-﻿using fflauncher.Models;
-using System;
-using System.Collections.Generic;
+﻿using fffrontend.Models;
 using System.Collections.ObjectModel;
-using System.Text;
 
-namespace fflauncher.Services
+namespace fffrontend.Services
 {
     public class ConfigService
     {

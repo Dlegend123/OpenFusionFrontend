@@ -1,12 +1,9 @@
-﻿using System;
-using System.Collections.Generic;
-using System.IO;
+﻿using System.IO;
 using System.Runtime.InteropServices;
-using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-namespace fflauncher.Models
+namespace fffrontend.Models
 {
     public class ConfigManager
     {
@@ -110,7 +107,6 @@ namespace fflauncher.Models
                     continue;
 
                 config.ServerPath = ResolvePath(config.ServerPath);
-                config.ClientPath = ResolvePath(config.ClientPath);
 
                 if (!string.Equals(config.Mode, "online", StringComparison.OrdinalIgnoreCase))
                 {

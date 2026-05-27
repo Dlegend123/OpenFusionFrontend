@@ -1,15 +1,11 @@
-﻿using System;
-using System.Collections.Generic;
-using System.DirectoryServices.ActiveDirectory;
-using System.Text;
-using System.Windows;
+﻿using System.Windows;
 using System.Windows.Media;
 using System.Windows.Threading;
+using Application = System.Windows.Application;
 using Brush = System.Windows.Media.Brush;
 using Brushes = System.Windows.Media.Brushes;
 using Color = System.Windows.Media.Color;
-using Application = System.Windows.Application;
-namespace fflauncher.Services
+namespace fffrontend.Services
 {
     public class ToastService
     {
@@ -48,7 +44,7 @@ namespace fflauncher.Services
                     break;
 
                 case ToastType.Success:
-                    background = Application.Current?.TryFindResource("AccentColor") as Brush ?? ToastSuccessBackground;
+                    background = Application.Current?.TryFindResource("BorderColor") as Brush ?? ToastSuccessBackground;
                     break;
 
                 default:
@@ -66,18 +62,18 @@ namespace fflauncher.Services
                 }
                 catch { }
 
-                double targetWidth = owner.ActualWidth / 10.0;
-                double targetHeight = owner.ActualHeight / 20.0;
-                toast.InitializeSize(targetWidth, targetHeight);
+                double targetWidth = owner.ActualWidth / 9.0;
+                double targetHeight = owner.ActualHeight / 19.0;
+                toast.InitializeSize(targetWidth);
                 toast.Left = owner.Left + (owner.ActualWidth - targetWidth) / 2.0;
                 toast.Top = owner.Top + (owner.ActualHeight - targetHeight) / 12.0;
             }
             else
             {
                 var workArea = SystemParameters.WorkArea;
-                double targetWidth = workArea.Width / 10.0;
-                double targetHeight = workArea.Height / 20.0;
-                toast.InitializeSize(targetWidth, targetHeight);
+                double targetWidth = workArea.Width / 9.0;
+                double targetHeight = workArea.Height / 19.0;
+                toast.InitializeSize(targetWidth);
                 toast.Left = (workArea.Width - targetWidth) / 2.0;
                 toast.Top = workArea.Height / 12.0;
             }

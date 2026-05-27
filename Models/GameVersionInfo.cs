@@ -1,6 +1,6 @@
 using System.Collections.ObjectModel;
 
-namespace fflauncher.Models
+namespace fffrontend.Models
 {
     public class GameVersionInfo
     {
@@ -10,12 +10,6 @@ namespace fflauncher.Models
         public string? ParentUuid { get; set; }
         public bool Hidden { get; set; }
         public string MainFileUrl { get; set; } = string.Empty;
-
-        public override string ToString()
-        {
-            return Name ?? string.Empty;
-        }
-
 
         public static readonly ObservableCollection<GameVersionInfo> DefaultVersions = new()
         {

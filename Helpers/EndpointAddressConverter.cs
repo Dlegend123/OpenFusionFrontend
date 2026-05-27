@@ -1,10 +1,7 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Globalization;
-using System.Text;
+﻿using System.Globalization;
 using System.Windows.Data;
 
-namespace fflauncher.Helpers
+namespace fffrontend.Helpers
 {
     public class EndpointAddressConverter : IMultiValueConverter
     {

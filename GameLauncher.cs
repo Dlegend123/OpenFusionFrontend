@@ -1,16 +1,12 @@
-﻿using fflauncher.Models;
-using System;
+﻿using fffrontend.Models;
 using System.Diagnostics;
 using System.IO;
-using System.Linq;
 using System.Net;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
-using System.Threading.Tasks;
-using System.Windows;
 using System.Windows.Threading;
 
-namespace fflauncher
+namespace fffrontend
 {
     public class GameLauncher
     {
@@ -21,9 +17,6 @@ namespace fflauncher
 
         [DllImport("user32.dll")]
         private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
-
-        [DllImport("user32.dll")]
-        private static extern IntPtr FindWindow(string lpClassName, string lpWindowTitle);
 
         [DllImport("user32.dll")]
         private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
@@ -46,9 +39,6 @@ namespace fflauncher
         private const int WS_THICKFRAME = 0x00040000;
         private const int WS_SYSMENU = 0x00080000;
         private const int SWP_FRAMECHANGED = 0x0020;
-        private const int SWP_NOMOVE = 0x0002;
-        private const int SWP_NOSIZE = 0x0001;
-        private const int SWP_NOZORDER = 0x0004;
         private const int SWP_SHOWWINDOW = 0x0040;
         private const int HWND_TOPMOST = -1;
         private const int SW_MAXIMIZE = 3;
@@ -56,55 +46,7 @@ namespace fflauncher
         private readonly Logger _logger;
         private readonly ConfigManager _configManager;
 
-
-        ref struct SimpleValueStringBuilder
-        {
-            private Span<char> _buffer;
-            private char[]? _arrayFromPool;
-            private int _pos;
-
-            public SimpleValueStringBuilder(Span<char> initialBuffer)
-            {
-                _buffer = initialBuffer;
-                _arrayFromPool = null;
-                _pos = 0;
-            }
-
-            public void Append(ReadOnlySpan<char> value)
-            {
-                if (_pos + value.Length > _buffer.Length)
-                    Grow(value.Length);
-
-                value.CopyTo(_buffer.Slice(_pos));
-                _pos += value.Length;
-            }
-
-            public void Append(string s) => Append(s.AsSpan());
-
-            public void Append(char c)
-            {
-                if (_pos >= _buffer.Length)
-                    Grow(1);
-
-                _buffer[_pos++] = c;
-            }
-
-            private void Grow(int needed)
-            {
-                int newSize = Math.Max(_buffer.Length * 2, _pos + needed);
-                char[] newArray = new char[newSize];
-
-                _buffer.Slice(0, _pos).CopyTo(newArray);
-
-                _buffer = newArray;
-                _arrayFromPool = newArray;
-            }
-
-            public override string ToString()
-            {
-                return new string(_buffer.Slice(0, _pos));
-            }
-        }
+        private (int Width, int Height) Resolution { get; set; }
 
         public GameLauncher(Logger logger, ConfigManager configManager)
         {
@@ -160,7 +102,7 @@ namespace fflauncher
 
                 // 1. Fetch endpoint info (matching Rust: endpoint::get_info)
                 var info = await RetryAsync(() => ec.GetInfoAsync());
-                
+
                 if (info == null)
                     throw new Exception("Failed to fetch endpoint info");
 
@@ -193,7 +135,7 @@ namespace fflauncher
 
                 // Fetch the version from the endpoint (matching Rust: endpoint::fetch_version)
                 var version = await RetryAsync(() => ec.FetchVersion(versionUuid));
-                
+
                 if (version == null)
                     throw new Exception($"Failed to fetch version details for {versionUuid}");
 
@@ -241,7 +183,7 @@ namespace fflauncher
                         overrideUsername = cookie.Username ?? config.Username;
                         overrideToken = cookie.Cookie;
                     }
-                    catch(Exception ex)
+                    catch (Exception ex)
                     {
                         throw new Exception($"Error attempting to retrieve token from endpoint: {ex.Message}");
                     }
@@ -284,11 +226,28 @@ namespace fflauncher
             _logger.Log("Built client arguments:");
             foreach (var a in argsList)
                 _logger.Log(a);
-            string clientDir = Path.GetDirectoryName(config.ClientPath) ?? string.Empty;
+
+            // Determine client executable path. Prefer configured path, but if missing
+            // attempt to use ffrunner.exe in the application's directory.
+            string clientPath = string.Empty;
+
+            var baseDir = AppDomain.CurrentDomain.BaseDirectory ?? string.Empty;
+            var candidate = Path.Combine(baseDir, "ffrunner.exe");
+
+            if (File.Exists(candidate))
+            {
+                _logger.Log($"Using ffrunner.exe from app directory: {candidate}");
+                clientPath = candidate;
+            }
+
+            if (string.IsNullOrWhiteSpace(clientPath) || !File.Exists(clientPath))
+                throw new Exception("Client executable not found. Place ffrunner.exe next to this launcher.");
+
+            string clientDir = Path.GetDirectoryName(clientPath) ?? string.Empty;
 
             var clientInfo = new ProcessStartInfo
             {
-                FileName = config.ClientPath,
+                FileName = clientPath,
                 WorkingDirectory = clientDir,
                 UseShellExecute = false
             };
@@ -339,11 +298,6 @@ namespace fflauncher
                 };
 
                 timer.Start();
-
-            }
-            else if (config.Fullscreen)
-            {
-                _logger.Log("Borderless fullscreen disabled (Proton/Android compatibility mode)", "INFO");
             }
 
             if (clientProcess == null)
@@ -441,44 +395,18 @@ namespace fflauncher
             // 🔹 FULLSCREEN SIZE
             if (config.Fullscreen == true)
             {
-                var resolution = DisplaySettings.GetCurrentResolution();
+                Resolution = DisplaySettings.GetCurrentResolution();
 
                 args.Add("--width");
-                args.Add(resolution.Width.ToString());
+                args.Add(Resolution.Width.ToString());
 
                 args.Add("--height");
-                args.Add(resolution.Height.ToString());
-            }
-
-            // 🔹 GRAPHICS API
-            switch (config.GraphicsApi?.ToLowerInvariant())
-            {
-                case "opengl":
-                    args.Add("--force-opengl");
-                    break;
-
-                case "vulkan":
-                    args.Add("--force-vulkan");
-                    break;
-            }
-
-            // 🔹 VERBOSE
-            if (config.Verbose == true)
-            {
-                args.Add("-v");
+                args.Add(Resolution.Height.ToString());
             }
 
             return args;
         }
 
-        private static void AppendInt(ref SimpleValueStringBuilder sb, int value)
-        {
-            Span<char> tmp = stackalloc char[16];
-            if (value.TryFormat(tmp, out int written))
-            {
-                sb.Append(new string(tmp.Slice(0, written)));
-            }
-        }
 
         public static string NormalizePathOrUrl(string? value, bool ensureTrailingSlash)
         {
@@ -554,23 +482,25 @@ namespace fflauncher
             if (string.IsNullOrWhiteSpace(addr))
                 return string.Empty;
 
-            string host = addr;
-            int port = 23000; // ✅ correct default
+            ReadOnlySpan<char> span = addr.AsSpan().Trim();
+            ReadOnlySpan<char> hostSpan = span;
+            int port = 23000;
 
-            // Split host:port
-            if (addr.Contains(":"))
+            int colonIndex = span.LastIndexOf(':');
+            if (colonIndex > 0)
             {
-                var parts = addr.Split(':');
-                host = parts[0];
-
-                if (parts.Length > 1 && int.TryParse(parts[1], out int parsed))
+                ReadOnlySpan<char> portSpan = span.Slice(colonIndex + 1).Trim();
+                if (portSpan.Length > 0 && int.TryParse(portSpan, out int parsed))
+                {
                     port = parsed;
+                    hostSpan = span.Slice(0, colonIndex).TrimEnd();
+                }
             }
 
-            // If already an IP → return as-is
-            if (IPAddress.TryParse(host, out _))
-                return $"{host}:{port}";
+            if (IPAddress.TryParse(hostSpan, out _))
+                return $"{hostSpan.ToString()}:{port}";
 
+            string host = hostSpan.ToString();
             try
             {
                 var addresses = Dns.GetHostAddresses(host);
@@ -592,65 +522,6 @@ namespace fflauncher
             throw new Exception($"No IPv4 address found for {addr}");
         }
 
-        private void SetEnvironment(ProcessStartInfo info, ServerConfig config, string? assetBase = null)
-        {
-            // Set the cache directory for the game (matching OpenFusionLauncher)
-            // This is required for the game to find its cached assets
-            //if (!string.IsNullOrEmpty(assetBase))
-            //{
-            //    // If assetBase is a local path, use it as UNITY_FF_CACHE_DIR
-            //    if (!Uri.TryCreate(assetBase, UriKind.Absolute, out var uri) || uri.IsFile)
-            //    {
-            //        var cachePath = assetBase;
-            //        if (!Path.IsPathRooted(cachePath))
-            //        {
-            //            cachePath = Path.GetFullPath(cachePath);
-            //        }
-            //        info.Environment["UNITY_FF_CACHE_DIR"] = cachePath;
-            //        _logger.Log($"Set UNITY_FF_CACHE_DIR: {cachePath}");
-            //    }
-            //    else if (uri.Scheme == "file")
-            //    {
-            //        info.Environment["UNITY_FF_CACHE_DIR"] = uri.LocalPath;
-            //        _logger.Log($"Set UNITY_FF_CACHE_DIR: {uri.LocalPath}");
-            //    }
-            //}
-            //else if (!string.IsNullOrEmpty(config.CacheDir))
-            //{
-            //    var cachePath = Path.GetFullPath(config.CacheDir);
-            //    info.Environment["UNITY_FF_CACHE_DIR"] = cachePath;
-            //    _logger.Log($"Set UNITY_FF_CACHE_DIR: {cachePath}");
-            //}
-
-            // FPS cap using UNITY_FF_FPS_CAP (matching OpenFusionLauncher)
-            if (!string.IsNullOrEmpty(config.FpsLimit))
-            {
-                if (int.TryParse(config.FpsLimit, out _))
-                {
-                    // If it's a number, use it as the cap
-                    info.Environment["UNITY_FF_FPS_CAP"] = config.FpsLimit;
-                    _logger.Log($"Set UNITY_FF_FPS_CAP: {config.FpsLimit}");
-                }
-                else if (config.FpsLimit.Equals("off", StringComparison.OrdinalIgnoreCase) || 
-                         config.FpsLimit.Equals("old", StringComparison.OrdinalIgnoreCase))
-                {
-                    // If it's "off" or "old", disable FPS cap
-                    info.Environment["UNITY_FF_FPS_CAP"] = "old";
-                    _logger.Log("Set UNITY_FF_FPS_CAP: old (disabled)");
-                }
-                else
-                {
-                    // Otherwise use the value as-is
-                    info.Environment["UNITY_FF_FPS_CAP"] = config.FpsLimit;
-                    _logger.Log($"Set UNITY_FF_FPS_CAP: {config.FpsLimit}");
-                }
-            }
-
-            // DXVK HUD (debug visualization)
-            if (config.DxvkHud)
-                info.Environment["DXVK_HUD"] = "1";
-        }
-
         private static string NormalizeEndpoint(string endpoint)
         {
             if (string.IsNullOrWhiteSpace(endpoint))
@@ -666,6 +537,28 @@ namespace fflauncher
                 endpoint = endpoint.TrimEnd('/');
 
             return endpoint;
+        }
+
+        private void SetEnvironment(ProcessStartInfo info, ServerConfig config, string? assetBase = null)
+        {
+            // FPS cap using DXVK_FRAME_RATE
+            if (!string.IsNullOrEmpty(config.FpsLimit))
+            {
+                if (int.TryParse(config.FpsLimit, out _))
+                {
+                    // If it's a number, use it as the cap
+                    info.Environment["DXVK_FRAME_RATE"] = config.FpsLimit;
+                    _logger.Log($"Set DXVK_FRAME_RATE: {config.FpsLimit}");
+                }
+            }
+
+            // DXVK HUD (debug visualization)
+            if (config.DxvkHud)
+                info.Environment["DXVK_HUD"] = "1";
+
+            info.Environment["WINEESYNC"] = "1"; // Enable async mode in Wine for better performance
+            info.Environment["WINEFSYNC"] = "1"; // Enable fsync in Wine for better performance and stability
+
         }
 
         private bool TryMakeProcessWindowBorderless(int processId)
@@ -708,10 +601,9 @@ namespace fflauncher
                 {
                     int style = GetWindowLong(found, GWL_STYLE);
                     style &= ~(WS_CAPTION | WS_THICKFRAME | WS_SYSMENU);
-                    SetWindowLong(found, GWL_STYLE, style);
 
-                    Rect work = SystemParameters.WorkArea;
-                    SetWindowPos(found, new IntPtr(HWND_TOPMOST), 0, 0, (int)work.Width, (int)work.Height, SWP_FRAMECHANGED | SWP_SHOWWINDOW);
+                    SetWindowLong(found, GWL_STYLE, style);
+                    SetWindowPos(found, new IntPtr(HWND_TOPMOST), 0, 0, Resolution.Width, Resolution.Height, SWP_FRAMECHANGED | SWP_SHOWWINDOW);
                     ShowWindow(found, SW_MAXIMIZE);
                 }
                 catch (Exception ex)

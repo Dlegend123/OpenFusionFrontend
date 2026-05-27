@@ -1,12 +1,7 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Text;
-using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Data;
+﻿using System.Windows;
 using Brush = System.Windows.Media.Brush;
 
-namespace fflauncher
+namespace fffrontend
 {
     /// <summary>
     /// Interaction logic for ToastWindow.xaml
@@ -30,12 +25,13 @@ namespace fflauncher
             Root.Background = background;
         }
 
-        public void InitializeSize(double targetWidth, double targetHeight)
+        public void InitializeSize(double targetWidth)
         {
             Width = targetWidth;
-            Height = targetHeight;
+            SizeToContent = SizeToContent.Height;
+
             Root.Width = targetWidth;
-            Root.Height = targetHeight;
+
             MessageText.MaxWidth = targetWidth - Root.Padding.Left - Root.Padding.Right;
         }
     }

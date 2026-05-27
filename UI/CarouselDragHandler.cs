@@ -1,8 +1,7 @@
-﻿using System.Windows;
-using System.Windows.Controls;
+﻿using System.Windows.Controls;
 using Point = System.Windows.Point;
 
-namespace fflauncher.UI
+namespace fffrontend.UI
 {
     public class CarouselDragHandler
     {
@@ -11,7 +10,7 @@ namespace fflauncher.UI
         private Point _start;
         private double _offset;
         public bool SuppressClick { get; private set; }
-        private const double DragThreshold = 12.0; // 🔥 important for Wine/Android
+        private const double DragThreshold = 12.0; // 🔥 slightly less sensitive to accidental clicks
 
         public void MouseDown(ScrollViewer sv, Point point)
         {
@@ -20,6 +19,7 @@ namespace fflauncher.UI
 
             _maybeDragging = true;
             _isDragging = false;
+            SuppressClick = false;
         }
 
         public void MouseMove(ScrollViewer sv, Point current)
@@ -37,12 +37,11 @@ namespace fflauncher.UI
 
                 _isDragging = true;
                 sv.CaptureMouse();
-
-                SuppressClick = true; // 🔥 ADD THIS
+                SuppressClick = true;
             }
 
             double delta = _start.X - current.X;
-            sv.ScrollToHorizontalOffset(_offset + delta * 0.02);
+            sv.ScrollToHorizontalOffset(_offset + delta * 0.1);
         }
 
         public bool MouseUp(ScrollViewer sv)
@@ -55,9 +54,17 @@ namespace fflauncher.UI
             _isDragging = false;
             _maybeDragging = false;
 
-            SuppressClick = false; // 🔥 ADD THIS
-
             return wasDragging;
+        }
+
+        public void Cancel(ScrollViewer? sv = null)
+        {
+            if (_isDragging && sv != null)
+                sv.ReleaseMouseCapture();
+
+            _isDragging = false;
+            _maybeDragging = false;
+            SuppressClick = false;
         }
     }
 }

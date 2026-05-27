@@ -1,16 +1,10 @@
-using System;
-using System.Collections.Generic;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
-using System.Reflection.Metadata;
-using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using System.Threading.Tasks;
-using static System.Windows.Forms.VisualStyles.VisualStyleElement.StartPanel;
 
-namespace fflauncher
+namespace fffrontend
 {
     public class EndpointClient : IDisposable
     {
@@ -41,7 +35,7 @@ namespace fflauncher
             {
                 _httpClient = httpClient;
                 _ownsClient = true;
-                if (!_httpClient.DefaultRequestHeaders.UserAgent.TryParseAdd("fflauncher/1.0"))
+                if (!_httpClient.DefaultRequestHeaders.UserAgent.TryParseAdd("fffrontend/1.0"))
                 {
                     // ignore
                 }
@@ -55,7 +49,7 @@ namespace fflauncher
                 Timeout = TimeSpan.FromSeconds(10) // ✅ match Rust
             };
 
-            client.DefaultRequestHeaders.UserAgent.ParseAdd("fflauncher/1.0");
+            client.DefaultRequestHeaders.UserAgent.ParseAdd("fffrontend/1.0");
             client.DefaultRequestHeaders.Accept.Add(
                 new MediaTypeWithQualityHeaderValue("application/json"));
 
@@ -178,50 +172,12 @@ namespace fflauncher
             return null;
         }
 
-        public async Task<EndpointClient.AccountInfo> GetAccountInfoAsync(string sessionToken)
+        public async Task<StatusResponse> GetStatusAsync()
         {
-            var url = MakeUrl("account");
+            var url = MakeUrl("status");
             using var req = new HttpRequestMessage(HttpMethod.Get, url);
-            SetBearer(req, sessionToken);
             var res = await _httpClient.SendAsync(req).ConfigureAwait(false);
-            return await HandleResponse<AccountInfo>(res, url).ConfigureAwait(false);
-        }
-
-        public async Task<bool> SendOtpAsync(string email)
-        {
-            var url = MakeUrl("account/otp");
-            var req = new { email };
-            using var content = CreateJsonContent(req);
-            var res = await _httpClient.PostAsync(url, content).ConfigureAwait(false);
-            return res.IsSuccessStatusCode;
-        }
-
-        public async Task<bool> UpdateEmailAsync(string sessionToken, string newEmail)
-        {
-            var url = MakeUrl("account/update/email");
-            var req = new { new_email = newEmail };
-            using var content = CreateJsonContent(req);
-            using var httpReq = new HttpRequestMessage(HttpMethod.Post, url)
-            {
-                Content = content
-            };
-            SetBearer(httpReq, sessionToken);
-            var res = await _httpClient.SendAsync(httpReq).ConfigureAwait(false);
-            return res.IsSuccessStatusCode;
-        }
-
-        public async Task<bool> UpdatePasswordAsync(string sessionToken, string newPassword)
-        {
-            var url = MakeUrl("account/update/password");
-            var req = new { new_password = newPassword };
-            using var content = CreateJsonContent(req);
-            using var httpReq = new HttpRequestMessage(HttpMethod.Post, url)
-            {
-                Content = content
-            };
-            SetBearer(httpReq, sessionToken);
-            var res = await _httpClient.SendAsync(httpReq).ConfigureAwait(false);
-            return res.IsSuccessStatusCode;
+            return await HandleResponse<StatusResponse>(res, url).ConfigureAwait(false);
         }
 
         private static async Task<T> HandleResponse<T>(HttpResponseMessage res, string url)
@@ -245,6 +201,7 @@ namespace fflauncher
                 throw new Exception($"JSON parse error: {ex.Message}\nResponse: {body}", ex);
             }
         }
+
         public async Task<VersionResponse> FetchVersion(Guid versionUuid)
         {
             var uuid = versionUuid.ToString();
@@ -264,7 +221,7 @@ namespace fflauncher
         private async Task<VersionResponse?> FetchVersionInternal(string filename)
         {
             var url = MakeUrl($"versions/{filename}");
-            
+
             try
             {
                 var json = await _httpClient.GetStringAsync(url).ConfigureAwait(false);
@@ -377,16 +334,9 @@ namespace fflauncher
             [JsonPropertyName("expires")] public long Expires { get; set; }
         }
 
-        public class RegisterResponse
+        public class StatusResponse
         {
-            [JsonPropertyName("resp")] public string? Resp { get; set; }
-            [JsonPropertyName("can_login")] public bool CanLogin { get; set; }
-        }
-
-        public class AccountInfo
-        {
-            [JsonPropertyName("username")] public string? Username { get; set; }
-            [JsonPropertyName("email")] public string? Email { get; set; }
+            [JsonPropertyName("player_count")] public int PlayerCount { get; set; }
         }
     }
 }

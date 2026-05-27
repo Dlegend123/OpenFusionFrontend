@@ -1,10 +1,7 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Text;
-using System.Text.Json.Serialization;
+﻿using System.Text.Json.Serialization;
 using System.Windows.Media;
 
-namespace fflauncher.Models
+namespace fffrontend.Models
 {
     public class ServerConfig : System.ComponentModel.INotifyPropertyChanged
     {
@@ -32,11 +29,11 @@ namespace fflauncher.Models
 
         private string _mode;
         [JsonPropertyName("mode")]
-        public string Mode 
-        { 
+        public string Mode
+        {
             get => _mode;
-            set 
-            { 
+            set
+            {
                 if (_mode != value)
                 {
                     _mode = value;
@@ -48,8 +45,6 @@ namespace fflauncher.Models
         [JsonPropertyName("server")]
         public string ServerPath { get; set; }
 
-        [JsonPropertyName("client")]
-        public string ClientPath { get; set; }
 
         [JsonPropertyName("cache_dir")]
         public string CacheDir { get; set; }
@@ -101,9 +96,6 @@ namespace fflauncher.Models
         [JsonPropertyName("fps_limit")]
         public string FpsLimit { get; set; }
 
-        [JsonPropertyName("graphics_api")]
-        public string GraphicsApi { get; set; }
-
         [JsonPropertyName("fullscreen")]
         public bool Fullscreen { get; set; }
 
@@ -127,6 +119,21 @@ namespace fflauncher.Models
                 {
                     _image = value;
                     OnPropertyChanged(nameof(Image));
+                }
+            }
+        }
+
+        private int? _playerCount;
+        [JsonIgnore]
+        public int? PlayerCount
+        {
+            get => _playerCount;
+            set
+            {
+                if (_playerCount != value)
+                {
+                    _playerCount = value;
+                    OnPropertyChanged(nameof(PlayerCount));
                 }
             }
         }

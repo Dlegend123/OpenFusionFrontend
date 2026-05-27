@@ -1,28 +1,25 @@
-    
-using fflauncher.Models;
-using fflauncher.Services;
-using fflauncher.UI;
-using System.Collections.Generic;
+
+using fffrontend.Models;
+using fffrontend.Services;
+using fffrontend.UI;
 using System.Collections.ObjectModel;
 using System.IO;
-using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
 using Application = System.Windows.Application;
 using Brush = System.Windows.Media.Brush;
-using Brushes = System.Windows.Media.Brushes;
 using Button = System.Windows.Controls.Button;
-using Color = System.Windows.Media.Color;
-using Image = System.Windows.Controls.Image;
+using HorizontalAlignment = System.Windows.HorizontalAlignment;
 using MouseEventArgs = System.Windows.Input.MouseEventArgs;
 using Orientation = System.Windows.Controls.Orientation;
 using Point = System.Windows.Point;
 using WForms = System.Windows.Forms;
 
-namespace fflauncher
+namespace fffrontend
 {
     /// <summary>
     /// Interaction logic for MainWindow.xaml
@@ -37,7 +34,6 @@ namespace fflauncher
                 Name = src.Name,
                 Mode = src.Mode,
                 ServerPath = src.ServerPath,
-                ClientPath = src.ClientPath,
                 CacheDir = src.CacheDir,
                 Address = src.Address,
                 Endpoint = src.Endpoint,
@@ -47,14 +43,14 @@ namespace fflauncher
                 Verbose = src.Verbose,
                 DxvkHud = src.DxvkHud,
                 FpsLimit = src.FpsLimit,
-                GraphicsApi = src.GraphicsApi,
                 Fullscreen = src.Fullscreen,
-                ImagePath = src.ImagePath
+                ImagePath = src.ImagePath,
+                IsAddNew = src.IsAddNew
             };
         }
         private List<GameVersionInfo> _availableVersions = new();
         private ServerConfig? originalConfig;
-        
+
         private ConfigManager configManager;
         Dictionary<string, ServerConfig> configs; // key = Id
         private ServerConfig selectedConfig;
@@ -62,11 +58,11 @@ namespace fflauncher
         private ServerConfig? ActiveConfig =>
     ServerCarousel.SelectedItem is ServerConfig c && !c.IsAddNew ? c : null;
         private GameLauncher gameLauncher;
-        
+
         private readonly ObservableCollection<ServerConfig> _configList = new();
-        private bool _isDragging = false;
         private ScrollViewer? _scrollViewer;
-        private bool _maybeDragging = false;
+        private bool _suppressCarouselSelectionAfterDrag;
+        private bool _suppressServerDropdownSelectionChanged;
         private bool _configDragging;
         private Point _configStartPoint;
         private double _configStartOffset;
@@ -77,6 +73,7 @@ namespace fflauncher
                 "Gray",
                 "Neon",
                 "Forest",
+                "FusionFall",
                 "Corruption",
                 "Nano",
                 "Tech",
@@ -95,10 +92,8 @@ namespace fflauncher
             {
                 Address = "api.dexlabs.systems",
                 CacheDir = string.Empty,
-                ClientPath = string.Empty,
                 DxvkHud = false,
                 FpsLimit = "60",
-                GraphicsApi = "vulkan",
                 LogFile = string.Empty,
                 Mode = "online",
                 Name = "Public - Original",
@@ -108,10 +103,8 @@ namespace fflauncher
             {
                 Address = "api.dexlabs.systems/academy",
                 CacheDir = string.Empty,
-                ClientPath = string.Empty,
                 DxvkHud = false,
                 FpsLimit = "60",
-                GraphicsApi = "vulkan",
                 LogFile = string.Empty,
                 Mode = "online",
                 Name = "Public - Academy",
@@ -195,8 +188,10 @@ namespace fflauncher
                 // wait for UI to finish generating
                 await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.Loaded);
 
-                // 🔥 NEW: preload all carousel images after configs load
-                _ = Task.Run(PreloadAllCarouselImages);
+                // 🔥 NEW: preload all carousel images and fetch player counts before showing the window
+                var preloadTask = PreloadAllCarouselImages();
+                var fetchCountsTask = FetchPlayerCounts();
+                await Task.WhenAll(preloadTask, fetchCountsTask);
 
                 if (configs.Any())
                 {
@@ -207,6 +202,7 @@ namespace fflauncher
                         ServerDropdown.SelectedItem = first;
                         selectedConfig = first;
                         LoadConfigToForm(first);
+                        DisplayConfigDetails(first);
                     }
                 }
             }
@@ -221,91 +217,194 @@ namespace fflauncher
                 ShowInTaskbar = true;
             }
         }
-        
-        private async Task PreloadAllCarouselImages()
+        private async Task PreloadAllCarouselImages() =>
+            await ProcessConfigsAsync(_configList, async cfg => await _imageService.LoadImageAsync(cfg, logger), "PreloadAllCarouselImages");
+
+        private async Task FetchPlayerCounts() =>
+            await ProcessConfigsAsync(
+                _configList.Where(cfg => cfg.Mode == "online" && !string.IsNullOrEmpty(cfg.Endpoint)),
+                FetchAndSetPlayerCountAsync,
+                "FetchPlayerCounts");
+
+        private async Task FetchCurrentCarouselPlayerCountsAsync()
         {
             try
             {
-                if (_configList == null || _configList.Count == 0)
+                if (ServerCarousel.SelectedItem is not ServerConfig selected)
                     return;
 
-                var tasks = new List<Task>();
+                int index = _configList.IndexOf(selected);
+                if (index < 0)
+                    return;
 
-                foreach (var cfg in _configList)
+                var visibleConfigs = new List<ServerConfig>(3);
+                for (int offset = -1; offset <= 1; offset++)
                 {
-                    if (cfg == null || cfg.IsAddNew)
-                        continue;
-
-                    tasks.Add(_imageService.LoadImageAsync(cfg, logger));
+                    int idx = index + offset;
+                    if (idx >= 0 && idx < _configList.Count)
+                        visibleConfigs.Add(_configList[idx]);
                 }
 
+                await ProcessConfigsAsync(
+                    visibleConfigs.Where(cfg => cfg.Mode == "online" && !string.IsNullOrEmpty(cfg.Endpoint)),
+                    FetchAndSetPlayerCountAsync,
+                    "FetchCurrentCarouselPlayerCounts");
+            }
+            catch (Exception ex)
+            {
+                logger.Log($"FetchCurrentCarouselPlayerCountsAsync failed: {ex.Message}", "DEBUG");
+            }
+        }
+
+        private async Task ProcessConfigsAsync<T>(IEnumerable<T> items, Func<T, Task> action, string taskName) where T : ServerConfig
+        {
+            try
+            {
+                var tasks = items?
+                    .Where(cfg => cfg != null && !cfg.IsAddNew)
+                    .Select(action)
+                    .ToList() ?? new();
                 await Task.WhenAll(tasks);
             }
             catch (Exception ex)
             {
-                logger.Log($"PreloadAllCarouselImages failed: {ex.Message}", "WARN");
+                logger.Log($"{taskName} failed: {ex.Message}", "WARN");
+            }
+        }
+
+        private async Task FetchAndSetPlayerCountAsync(ServerConfig config)
+        {
+            try
+            {
+                using var client = new EndpointClient(config.Endpoint);
+                config.PlayerCount = (await client.GetStatusAsync()).PlayerCount;
+            }
+            catch (Exception ex)
+            {
+                logger.Log($"Failed to fetch player count for {config.Name}: {ex.Message}", "DEBUG");
             }
         }
 
         private void ShowSettingsView(ServerConfig? editConfig = null)
         {
-            BackButton.Visibility = Visibility.Visible;
-            SettingsButton.Visibility = Visibility.Collapsed;
-            LauncherHeader.Visibility = Visibility.Collapsed;
-            LauncherView.Visibility = Visibility.Collapsed;
-            SettingsView.Visibility = Visibility.Visible;
-            LaunchButton.Visibility = Visibility.Collapsed;
-            SettingsHeader.Visibility = Visibility.Visible;
-            SaveButton.Visibility = Visibility.Visible;
-
-            // ✅ FIX: always assign a config
-            originalConfig = editConfig?.IsAddNew == true ? null : editConfig ?? selectedConfig;
-            editingConfig = CloneConfig(editConfig ?? selectedConfig);
-
-            ThemeDropdown.ItemsSource = ThemeMap;
-            ThemeDropdown.SelectedItem = configManager.GlobalTheme ?? "fusionfall";
-
-            // ✅ SAFE now
-            if (editingConfig.IsAddNew)
+            // If nothing is selected yet, create a safe blank config for the settings view.
+            var configToEdit = editConfig ?? selectedConfig ?? new ServerConfig
             {
-                ServerDropdown.SelectedItem =
-                    ServerDropdown.Items.Cast<ServerConfig>()
-                    .FirstOrDefault(c => c.IsAddNew);
-            }
-            else
-            {
-                ServerDropdown.SelectedItem = originalConfig;
-            }
+                Id = Guid.NewGuid().ToString(),
+                Name = "New Config",
+                Mode = "offline",
+                ServerPath = string.Empty,
+                CacheDir = string.Empty,
+                Address = string.Empty,
+                Endpoint = string.Empty,
+                Username = string.Empty,
+                Password = string.Empty,
+                LogFile = string.Empty,
+                Verbose = false,
+                DxvkHud = false,
+                FpsLimit = "60",
+                Fullscreen = true,
+                ImagePath = string.Empty
+            };
 
-            LoadConfigToForm(editingConfig);
-            LoadEndpointPresets(editingConfig);
-            FormStackPanel.DataContext = editingConfig;
-            SectionChanged(SettingsButton, new RoutedEventArgs());
+            originalConfig = configToEdit.IsAddNew ? null : (editConfig ?? selectedConfig);
+            editingConfig = CloneConfig(configToEdit);
+
+            _suppressServerDropdownSelectionChanged = true;
+
+            // Update visibility with high priority to show settings view immediately
+            _ = Dispatcher.InvokeAsync(() =>
+            {
+                // Batch visibility changes to minimize layout passes
+                BackButton.Visibility = Visibility.Visible;
+                SettingsButton.Visibility = Visibility.Collapsed;
+                LauncherHeader.Visibility = Visibility.Collapsed;
+                LauncherView.Visibility = Visibility.Collapsed;
+                LaunchButton.Visibility = Visibility.Collapsed;
+                SettingsHeader.Visibility = Visibility.Visible;
+                SaveButton.Visibility = Visibility.Visible;
+                SettingsView.Visibility = Visibility.Visible;
+
+                // Set theme immediately (cached)
+                ThemeDropdown.ItemsSource = ThemeMap;
+                ThemeDropdown.SelectedItem = configManager.GlobalTheme ?? "fusionfall";
+
+                // Select the '+' entry when creating a new config
+                if (editingConfig.IsAddNew)
+                {
+                    var addNewDropdownItem = _configList.FirstOrDefault(cfg => cfg.IsAddNew);
+                    if (addNewDropdownItem != null)
+                        ServerDropdown.SelectedItem = addNewDropdownItem;
+                }
+                else
+                {
+                    // Ensure the dropdown reflects the currently selected carousel item
+                    ServerDropdown.SelectedItem = configToEdit;
+                }
+
+                // Section visibility updated immediately so the settings panel appears quickly.
+                SectionChanged(SettingsButton, new RoutedEventArgs());
+            }, DispatcherPriority.Render);
+
+            // Defer setting DataContext and populating form controls to background to
+            // allow the UI to render the settings view immediately.
+            _ = Dispatcher.InvokeAsync(() =>
+            {
+                try
+                {
+                    FormStackPanel.DataContext = editingConfig;
+
+                    // Populate form fields
+                    LoadConfigToForm(editingConfig);
+
+                    // Load endpoint presets (non-blocking for the UI)
+                    LoadEndpointPresets(editingConfig);
+
+                    // Reset server panel scroll position to top after form is loaded
+                    ServerPanelScrollViewer?.ScrollToVerticalOffset(0);
+                }
+                catch { }
+                finally
+                {
+                    _suppressServerDropdownSelectionChanged = false;
+                }
+            }, DispatcherPriority.Background);
         }
 
         private async Task ShowLauncherView()
         {
-
             try
             {
-                var f = MainViewsGrid.Height;
-                DisplayConfigDetails(selectedConfig);
+                // Update visibility first with high priority
+                await Dispatcher.InvokeAsync(() =>
+                {
+                    BackButton.Visibility = Visibility.Collapsed;
+                    SettingsButton.Visibility = Visibility.Visible;
+                    LauncherHeader.Visibility = Visibility.Visible;
+                    LauncherView.Visibility = Visibility.Visible;
+                    SettingsView.Visibility = Visibility.Collapsed;
+                    LaunchButton.Visibility = Visibility.Visible;
+                    SettingsHeader.Visibility = Visibility.Collapsed;
+                    SaveButton.Visibility = Visibility.Collapsed;
+                }, DispatcherPriority.Render);
+
+                // Then defer the details population to background
+                var configToShow = selectedConfig ?? ActiveConfig;
+                if (configToShow != null)
+                {
+                    await Dispatcher.InvokeAsync(() =>
+                    {
+                        DisplayConfigDetails(configToShow);
+                    }, DispatcherPriority.Background);
+                }
+                else
+                {
+                    ConfigDetailsPanel.Children.Clear();
+                }
             }
             catch (Exception ex)
             {
                 logger.Log($"ShowLauncherView error: {ex.Message}", "ERROR");
-            }
-            finally
-            {
-                BackButton.Visibility = Visibility.Collapsed;
-                SettingsButton.Visibility = Visibility.Visible;
-                LauncherHeader.Visibility = Visibility.Visible;
-                LauncherView.Visibility = Visibility.Visible;
-                SettingsView.Visibility = Visibility.Collapsed;
-                LaunchButton.Visibility = Visibility.Visible;
-                SettingsHeader.Visibility = Visibility.Collapsed;
-                SaveButton.Visibility = Visibility.Collapsed;
-                LauncherView.Visibility = Visibility.Visible;
             }
         }
 
@@ -313,27 +412,32 @@ namespace fflauncher
         {
             try
             {
-                var list = new List<string>(EndpointPresets.Count + 1);
+                // Build list with presets first to minimize allocations
                 var addresses = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                var list = new List<string>();
 
+                // Add all unique preset addresses
                 foreach (var preset in EndpointPresets)
                 {
-                    var addr = preset.Address;
-                    if (string.IsNullOrEmpty(addr))
-                        continue;
-
-                    if (addresses.Add(addr))
-                        list.Add(addr);
+                    if (!string.IsNullOrEmpty(preset.Address) && addresses.Add(preset.Address))
+                    {
+                        list.Add(preset.Address);
+                    }
                 }
 
+                // Add current endpoint if not already in list
                 var current = config?.Endpoint;
                 if (!string.IsNullOrEmpty(current) && addresses.Add(current))
                 {
                     list.Add(current);
                 }
 
+                // Update combo box efficiently
                 EndpointComboBox.ItemsSource = list;
-                EndpointComboBox.SelectedItem = current;
+                if (!string.IsNullOrEmpty(current))
+                {
+                    EndpointComboBox.SelectedItem = current;
+                }
             }
             catch { }
         }
@@ -341,19 +445,27 @@ namespace fflauncher
 
         private void ServerDropdown_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
+            if (_suppressServerDropdownSelectionChanged)
+                return;
+
             if (ServerDropdown.SelectedItem is ServerConfig config)
             {
                 // ensure originalConfig references the actual stored config (or null for add-new)
                 originalConfig = config.IsAddNew ? null : config;
                 editingConfig = CloneConfig(config);
-                LoadEndpointPresets(editingConfig);
-                LoadConfigToForm(editingConfig);
+
+                // Defer heavy form loading to background priority to keep UI responsive
+                _ = Dispatcher.InvokeAsync(() =>
+                {
+                    LoadEndpointPresets(editingConfig);
+                    LoadConfigToForm(editingConfig);
+                }, DispatcherPriority.Background);
             }
         }
 
         private void SectionChanged(object sender, RoutedEventArgs e)
         {
-            if(sender is Button settingsButton)
+            if (sender is Button settingsButton)
             {
                 ServerSectionBtn.IsChecked = true;
                 ThemeSectionBtn.IsChecked = false;
@@ -376,24 +488,30 @@ namespace fflauncher
 
         private void LoadConfigToForm(ServerConfig config)
         {
-            NameTextBox.Text = config.Name;
-            ModeOnlineRadio.IsChecked = string.Equals(config.Mode, "online", StringComparison.OrdinalIgnoreCase);
-            ModeOfflineRadio.IsChecked = string.Equals(config.Mode, "offline", StringComparison.OrdinalIgnoreCase);
-            ServerPathTextBox.Text = config.ServerPath;
-            ClientPathTextBox.Text = config.ClientPath;
-            CacheDirTextBox.Text = config.CacheDir;
-            AddressTextBox.Text = config.Address;
-            EndpointComboBox.Text = config.Endpoint;
-            UsernameTextBox.Text = config.Username;
-            UserPasswordBox.Password = config.Password;
-            LogFileTextBox.Text = config.LogFile;
-            VerboseCheckBox.IsChecked = config.Verbose;
-            DxvkHudCheckBox.IsChecked = config.DxvkHud;
-            FpsLimitTextBox.Text = config.FpsLimit;
-            //GraphicsApiTextBox.Text = config.GraphicsApi;
-            FullscreenCheckBox.IsChecked = config.Fullscreen;
-            ImagePathTextBox.Text = config.ImagePath;
-            UpdateModeFields();
+            // Batch property assignments to reduce layout recalculations
+            try
+            {
+                NameTextBox.Text = config.Name;
+                ModeOnlineRadio.IsChecked = string.Equals(config.Mode, "online", StringComparison.OrdinalIgnoreCase);
+                ModeOfflineRadio.IsChecked = string.Equals(config.Mode, "offline", StringComparison.OrdinalIgnoreCase);
+                ServerPathTextBox.Text = config.ServerPath;
+                CacheDirTextBox.Text = config.CacheDir;
+                AddressTextBox.Text = config.Address;
+                EndpointComboBox.Text = config.Endpoint;
+                UsernameTextBox.Text = config.Username;
+                UserPasswordBox.Password = config.Password;
+                LogFileTextBox.Text = config.LogFile;
+                VerboseToggle.IsChecked = config.Verbose;
+                DxvkHudToggle.IsChecked = config.DxvkHud;
+                FullscreenToggle.IsChecked = config.Fullscreen;
+                FpsLimitTextBox.Text = config.FpsLimit;
+                ImagePathTextBox.Text = config.ImagePath;
+            }
+            finally
+            {
+                // Defer visibility updates to allow batched text updates to render first
+                _ = Dispatcher.InvokeAsync(() => UpdateModeFields(), DispatcherPriority.Render);
+            }
         }
 
         private void UpdateModeFields()
@@ -406,7 +524,7 @@ namespace fflauncher
         private void ModeRadio_Checked(object sender, RoutedEventArgs e)
         {
             if (editingConfig == null) return;
-            
+
             editingConfig.Mode = ModeOnlineRadio.IsChecked == true ? "online" : "offline";
             UpdateModeFields();
         }
@@ -430,7 +548,7 @@ namespace fflauncher
             // debug: log UI values being saved
             try
             {
-                logger.Log($"Save_Click UI values: Name='{NameTextBox.Text}', Address='{AddressTextBox.Text}', Endpoint='{EndpointComboBox.Text}', ClientPath='{ClientPathTextBox.Text}', ServerPath='{ServerPathTextBox.Text}'", "DEBUG");
+                logger.Log($"Save_Click UI values: Name='{NameTextBox.Text}', Address='{AddressTextBox.Text}', Endpoint='{EndpointComboBox.Text}', ServerPath='{ServerPathTextBox.Text}'", "DEBUG");
             }
             catch { }
 
@@ -449,18 +567,16 @@ namespace fflauncher
             cfg.Name = name;
             cfg.Mode = ModeOnlineRadio.IsChecked == true ? "online" : "offline";
             cfg.ServerPath = ServerPathTextBox.Text;
-            cfg.ClientPath = ClientPathTextBox.Text;
             cfg.CacheDir = CacheDirTextBox.Text;
             cfg.Address = AddressTextBox.Text;
             cfg.Endpoint = EndpointComboBox.Text;
             cfg.Username = UsernameTextBox.Text;
             cfg.Password = UserPasswordBox.Password;
             cfg.LogFile = LogFileTextBox.Text;
-            cfg.Verbose = VerboseCheckBox.IsChecked == true;
-            cfg.DxvkHud = DxvkHudCheckBox.IsChecked == true;
+            cfg.Verbose = VerboseToggle.IsChecked == true;
+            cfg.DxvkHud = DxvkHudToggle.IsChecked == true;
             cfg.FpsLimit = FpsLimitTextBox.Text;
-            //cfg.GraphicsApi = GraphicsApiTextBox.Text;
-            cfg.Fullscreen = FullscreenCheckBox.IsChecked == true;
+            cfg.Fullscreen = FullscreenToggle.IsChecked == true;
 
             var newImagePath = ImagePathTextBox.Text;
 
@@ -540,14 +656,9 @@ namespace fflauncher
             SelectFilePath(ServerPathTextBox, "Select Server Executable", "Executable files|*.exe|All files|*.*");
         }
 
-        private void ClientPathTextBox_DoubleClick(object sender, MouseButtonEventArgs e)
-        {
-            SelectFilePath(ClientPathTextBox, "Select Client Executable", "Executable files|*.exe|All files|*.*");
-        }
-
         private void LogFileTextBox_DoubleClick(object sender, MouseButtonEventArgs e)
         {
-            SelectFilePath(LogFileTextBox, "Select Log File", "Log files|*.log;*.txt|All files|*.*");
+            SelectLogFilePath(LogFileTextBox, "Select Log File", "Log files|*.log;*.txt|All files|*.*");
         }
 
         private void SelectFilePath(System.Windows.Controls.TextBox target, string title, string filter)
@@ -562,6 +673,35 @@ namespace fflauncher
 
             if (dialog.ShowDialog() == true)
             {
+                target.Text = dialog.FileName;
+            }
+        }
+
+        private void SelectLogFilePath(System.Windows.Controls.TextBox target, string title, string filter)
+        {
+            var dialog = new Microsoft.Win32.SaveFileDialog
+            {
+                Title = title,
+                Filter = filter,
+                OverwritePrompt = false,
+                CheckPathExists = true,
+                AddExtension = true,
+                DefaultExt = ".log"
+            };
+
+            if (dialog.ShowDialog() == true)
+            {
+                try
+                {
+                    var dir = Path.GetDirectoryName(dialog.FileName);
+                    if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+                        Directory.CreateDirectory(dir);
+
+                    if (!File.Exists(dialog.FileName))
+                        File.WriteAllText(dialog.FileName, string.Empty);
+                }
+                catch { }
+
                 target.Text = dialog.FileName;
             }
         }
@@ -629,8 +769,8 @@ namespace fflauncher
         {
             if (ServerCarousel.SelectedItem is ServerConfig config && config.IsAddNew)
             {
-                // The add tile is handled by its button click. Ignore selection-based activation.
-                if (_isDragging || _maybeDragging)
+                // The add tile is handled by its button click. Ignore selection-based activation when the carousel was actually dragging.
+                if (_carouselDrag.SuppressClick)
                 {
                     e.Handled = true;
                     return;
@@ -643,16 +783,23 @@ namespace fflauncher
             if (!IsLoaded)
                 return;
 
-            if (_carouselDrag.SuppressClick)
+            if (_carouselDrag.SuppressClick || _suppressCarouselSelectionAfterDrag)
                 return;
 
             logger.Log("ServerCarousel_SelectionChanged fired");
             if (ServerCarousel.SelectedItem is not ServerConfig config)
                 return;
 
+            if (config.IsAddNew)
+                return;
+
             selectedConfig = config;
 
-            DisplayConfigDetails(config);
+            _ = Dispatcher.InvokeAsync(async () =>
+            {
+                DisplayConfigDetails(config);
+                await FetchCurrentCarouselPlayerCountsAsync();
+            }, DispatcherPriority.Background);
         }
         private ScrollViewer? FindScrollViewer(DependencyObject parent)
         {
@@ -669,11 +816,16 @@ namespace fflauncher
 
             return null;
         }
-        
+
         private void ConfigDrag_MouseDown(object sender, MouseButtonEventArgs e)
         {
+            // Prevent drag start when the user interacts with buttons or toggle switches.
+            var source = (DependencyObject)e.OriginalSource;
+            if (FindParent<ToggleButton>(source) != null || FindParent<Button>(source) != null)
+                return;
+
             _configDragging = true;
-            _configStartPoint = e.GetPosition(this);
+            _configStartPoint = e.GetPosition(ConfigScrollViewer);
             _configStartOffset = ConfigScrollViewer.VerticalOffset;
 
             ConfigScrollViewer.CaptureMouse();
@@ -726,6 +878,12 @@ namespace fflauncher
 
             if (_scrollViewer == null) return;
 
+            if (e.LeftButton != MouseButtonState.Pressed)
+            {
+                _carouselDrag.Cancel(_scrollViewer);
+                return;
+            }
+
             _carouselDrag.MouseMove(_scrollViewer, e.GetPosition(ServerCarousel));
         }
 
@@ -738,7 +896,15 @@ namespace fflauncher
 
             // 🔥 IMPORTANT: prevent selection if it was a drag
             if (wasDragging)
+            {
+                _suppressCarouselSelectionAfterDrag = true;
+                Dispatcher.BeginInvoke(() =>
+                {
+                    _suppressCarouselSelectionAfterDrag = false;
+                    _carouselDrag.Cancel(_scrollViewer);
+                }, DispatcherPriority.Input);
                 e.Handled = true;
+            }
         }
 
         private void AddTile_Click(object sender, RoutedEventArgs e)
@@ -755,12 +921,12 @@ namespace fflauncher
                 Id = Guid.NewGuid().ToString(), // ✅ ADD THIS
                 Name = "New Config",
                 Mode = "offline",
-                GraphicsApi = "vulkan",
                 Fullscreen = true,
-                FpsLimit = "60"
+                FpsLimit = "60",
+                IsAddNew = true
             };
 
-            LoadEndpointPresets(newConfig);
+            // Defer loading presets and heavy form population to ShowSettingsView
             ShowSettingsView(newConfig);
         }
 
@@ -768,25 +934,167 @@ namespace fflauncher
         {
             ConfigDetailsPanel.Children.Clear();
 
-            AddDetail("Mode", config.Mode);
-            AddDetail("Username", config.Username);
-            //AddDetail("Address", config.Address, string.Equals(config.Mode, "offline", StringComparison.OrdinalIgnoreCase));
-            //AddDetail("Server Path", config.ServerPath, string.Equals(config.Mode, "offline", StringComparison.OrdinalIgnoreCase));
-            //AddDetail("Client Path", config.ClientPath);
-            //AddDetail("Cache Dir", config.CacheDir, string.Equals(config.Mode, "offline", StringComparison.OrdinalIgnoreCase));
-            //AddDetail("Log File", config.LogFile);
-            AddDetail("Verbose", config.Verbose.ToString());
-            AddDetail("DXVK HUD", config.DxvkHud.ToString());
-            AddDetail("FPS Limit", config.FpsLimit);
-            AddDetail("Fullscreen", config.Fullscreen.ToString());
+            var grid = new Grid
+            {
+                Margin = new Thickness(10),
+                HorizontalAlignment = HorizontalAlignment.Stretch
+            };
+
+            // Text column, separator, toggle column, separator, button column
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(2, GridUnitType.Auto) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); // separator
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); // separator
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); // button column
+
+            grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+            grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+            grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+
+            // Left column: text details
+            var textPanel = new Grid
+            {
+                Margin = new Thickness(5),
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                VerticalAlignment = VerticalAlignment.Stretch
+            };
+
+            int row = 0;
+
+            textPanel.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            AddDetailToPanel(textPanel, "Mode", config.Mode, row++);
+
+            textPanel.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            AddDetailToPanel(textPanel, "Username", config.Username, row++);
+
+            textPanel.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            AddDetailToPanel(textPanel, "FPS Limit", config.FpsLimit, row++);
+
+            // Separator
+            var separator = new Border
+            {
+                Width = 1,
+                Background = Application.Current?.TryFindResource("BorderColor") as Brush,
+                Margin = new Thickness(10, 0, 10, 0)
+            };
+
+            // Right column: toggles
+            var togglePanel = new StackPanel
+            {
+                Orientation = Orientation.Vertical,
+                Margin = new Thickness(5),
+                HorizontalAlignment = HorizontalAlignment.Left,
+                VerticalAlignment = VerticalAlignment.Top
+            };
+
+            AddToggleDetailToPanel(togglePanel, "Verbose", config.Verbose, val => config.Verbose = val);
+            AddToggleDetailToPanel(togglePanel, "DXVK HUD", config.DxvkHud, val => config.DxvkHud = val);
+            AddToggleDetailToPanel(togglePanel, "Fullscreen", config.Fullscreen, val => config.Fullscreen = val);
+
+            Grid.SetColumn(textPanel, 0);
+            Grid.SetColumn(separator, 1);
+            Grid.SetColumn(togglePanel, 2);
+
+            grid.Children.Add(textPanel);
+            grid.Children.Add(separator);
+            grid.Children.Add(togglePanel);
+
+            ConfigDetailsPanel.Children.Add(grid);
         }
 
-        private void AddDetail(string label, string value, bool visible = true)
+        private void AddDetailToPanel(Grid panel, string label, string value, int rowIndex)
         {
-            var panel = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 5, 0, 0), Visibility = visible ? Visibility.Visible : Visibility.Collapsed };
-            panel.Children.Add(new TextBlock { Text = $"{label}: ", FontSize = 15, FontWeight = FontWeights.Bold });
-            panel.Children.Add(new TextBlock { Text = value, FontSize = 14, VerticalAlignment = VerticalAlignment.Bottom });
-            ConfigDetailsPanel.Children.Add(panel);
+            var row = new Grid
+            {
+                Margin = new Thickness(0, 8, 0, 6),
+                HorizontalAlignment = HorizontalAlignment.Stretch
+            };
+
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(120) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+            var labelBlock = new TextBlock
+            {
+                Text = $"{label}",
+                FontSize = 15,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+
+            Grid.SetColumn(labelBlock, 0);
+
+            var valueBlock = new TextBlock
+            {
+                Text = value,
+                FontSize = 15,
+                VerticalAlignment = VerticalAlignment.Center,
+                Foreground = Application.Current?.TryFindResource("AccentColor") as Brush,
+            };
+
+            Grid.SetColumn(valueBlock, 1);
+
+            row.Children.Add(labelBlock);
+            row.Children.Add(valueBlock);
+
+            Grid.SetRow(row, rowIndex);
+
+            panel.Children.Add(row);
+        }
+
+        private void AddToggleDetailToPanel(StackPanel panel, string label, bool value, Action<bool> onChanged)
+        {
+            var row = new Grid
+            {
+                Margin = new Thickness(0, 0, 0, 12)
+            };
+
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(120) }); // fixed label width
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(60) });  // toggle width
+
+            var text = new TextBlock
+            {
+                Text = label,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            Grid.SetColumn(text, 0);
+
+            var toggle = new ToggleButton
+            {
+                IsChecked = value,
+                Style = (Style)FindResource("ToggleSwitchStyle"),
+                HorizontalAlignment = System.Windows.HorizontalAlignment.Left,
+                VerticalAlignment = VerticalAlignment.Center,
+                IsThreeState = false
+            };
+            Grid.SetColumn(toggle, 1);
+
+            toggle.Click += async (_, _) =>
+            {
+                onChanged(toggle.IsChecked == true);
+                await SaveQuick();
+            };
+
+            row.Children.Add(text);
+            row.Children.Add(toggle);
+
+            panel.Children.Add(row);
+        }
+
+        private async Task SaveQuick()
+        {
+            try
+            {
+                var cfg = selectedConfig;
+                if (cfg == null) return;
+
+                // persist configs quickly
+                await Task.Run(() => configManager.SaveConfigs(configs));
+
+                logger.Log($"SaveQuick: config id={cfg.Id} name={cfg.Name}", "DEBUG");
+            }
+            catch (Exception ex)
+            {
+                logger.Log($"SaveQuick failed: {ex.Message}", "ERROR");
+            }
         }
 
         private async void LaunchButton_Click(object sender, RoutedEventArgs e)
@@ -798,7 +1106,6 @@ namespace fflauncher
             }
 
             LaunchButton.IsEnabled = false;
-            _toastService.Show("Launching game...", ToastService.ToastType.Info, "Info");
 
             try
             {
@@ -816,9 +1123,7 @@ namespace fflauncher
 
         private void SettingsButton_Click(object sender, RoutedEventArgs e)
         {
-            if (configs == null)
-            {
-                configs = EndpointPresets.ToDictionary(
+            configs ??= EndpointPresets.ToDictionary(
                     p => Guid.NewGuid().ToString(),
                     p => new ServerConfig
                     {
@@ -826,8 +1131,7 @@ namespace fflauncher
                         Name = p.Name,
                         Mode = "Online",
                         Address = p.Address
-                });
-            }
+                    });
 
             // Show settings view immediately, defer heavy loading if needed
             ShowSettingsView();
@@ -837,26 +1141,8 @@ namespace fflauncher
         {
             if (e.ChangedButton == MouseButton.Left)
             {
-                    this.DragMove();
+                this.DragMove();
             }
-        }
-
-        private void Minimize_Click(object sender, RoutedEventArgs e)
-        {
-            this.WindowState = WindowState.Minimized;
-        }
-
-        private void Maximize_Click(object sender, RoutedEventArgs e)
-        {
-            ToggleMaximize();
-        }
-
-        private void ToggleMaximize()
-        {
-            this.WindowState =
-                this.WindowState == WindowState.Maximized
-                ? WindowState.Normal
-                : WindowState.Maximized;
         }
 
         private void Close_Click(object sender, RoutedEventArgs e)

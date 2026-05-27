@@ -1,8 +1,7 @@
-using System;
 using System.IO;
 using System.Text;
 
-namespace fflauncher
+namespace fffrontend
 {
     public class Logger : IDisposable
     {

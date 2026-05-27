@@ -1,13 +1,10 @@
-﻿using fflauncher.Models;
-using System;
-using System.Collections.Generic;
+﻿using fffrontend.Models;
 using System.IO;
-using System.Text;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using Application = System.Windows.Application;
 
-namespace fflauncher.Services
+namespace fffrontend.Services
 {
     public class ImageCacheService
     {
